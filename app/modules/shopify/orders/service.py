@@ -1,17 +1,14 @@
 """Facade for Shopify Orders.
 
-Calls the Shopify API via client.py, adapts Shopify's JSON shape to
-OrderResponse, and mirrors every order BridgeLayer reads into the
-local shopify_orders table (orders are read-only here, so list/get
-is the only place a local copy can be taken).
+Calls the Shopify API via client.py and adapts Shopify's JSON shape
+to OrderResponse. Orders are read-only in this API and Shopify stays
+the source of truth - nothing is cached or duplicated locally.
 """
 
 from app.core.exceptions import NotFoundError
 from app.core.schemas import PageMeta
-from app.db.session import SessionLocal
 from app.modules.shopify import client as shopify_client
 from app.modules.shopify.customers.schemas import CustomerResponse
-from app.modules.shopify.orders.models import ShopifyOrder
 from app.modules.shopify.orders.schemas import OrderListResponse, OrderResponse
 
 
@@ -36,27 +33,6 @@ def _from_shopify_record(record: dict) -> OrderResponse:
     )
 
 
-def _save_local(order: OrderResponse) -> None:
-    with SessionLocal() as db:
-        row = (
-            db.query(ShopifyOrder)
-            .filter(ShopifyOrder.external_id == order.order_id)
-            .first()
-        )
-        if row is None:
-            row = ShopifyOrder(external_id=order.order_id)
-            db.add(row)
-        row.customer_external_id = (
-            order.customer.id if order.customer else None
-        )
-        row.customer_email = order.customer.email if order.customer else None
-        row.total_price = order.total_price
-        row.currency = order.currency
-        row.order_status = order.order_status
-        row.order_created_at = order.created_at
-        db.commit()
-
-
 async def list_orders(page: int, per_page: int) -> OrderListResponse:
     response = await shopify_client.authenticated_request(
         "GET",
@@ -65,8 +41,6 @@ async def list_orders(page: int, per_page: int) -> OrderListResponse:
     )
     body = response.json()
     items = [_from_shopify_record(r) for r in body.get("orders", [])]
-    for order in items:
-        _save_local(order)
     has_more = 'rel="next"' in response.headers.get("Link", "")
     return OrderListResponse(
         items=items,
@@ -80,6 +54,4 @@ async def get_order(order_id: str) -> OrderResponse:
     )
     if response.status_code == 404:
         raise NotFoundError(f"Shopify order {order_id} not found")
-    order = _from_shopify_record(response.json()["order"])
-    _save_local(order)
-    return order
+    return _from_shopify_record(response.json()["order"])

@@ -1,6 +1,6 @@
 """Exercises app.modules.zoho.leads.service end to end (mocked Zoho
 
-HTTP calls via respx), including the local-mirror upsert on create.
+HTTP calls via respx). Zoho is the source of truth for lead data.
 """
 
 import pytest
@@ -8,10 +8,8 @@ import respx
 from httpx import Response
 
 from app.core.config import get_settings
-from app.db.session import SessionLocal
 from app.modules.zoho.auth import service as zoho_auth
 from app.modules.zoho.leads import service as leads_service
-from app.modules.zoho.leads.models import ZohoLead
 from app.modules.zoho.leads.schemas import LeadRequest
 
 
@@ -33,7 +31,7 @@ def _crm_base():
 
 
 @respx.mock
-async def test_create_lead_creates_then_mirrors_locally():
+async def test_create_lead_creates_then_fetches_record():
     base = _crm_base()
     respx.post(f"{base}/Leads").mock(
         return_value=Response(
@@ -79,13 +77,6 @@ async def test_create_lead_creates_then_mirrors_locally():
 
     assert lead.id == "222"
     assert lead.lead_source == "Web"
-
-    with SessionLocal() as db:
-        row = (
-            db.query(ZohoLead).filter(ZohoLead.external_id == "222").first()
-        )
-    assert row is not None
-    assert row.lead_source == "Web"
 
 
 @respx.mock

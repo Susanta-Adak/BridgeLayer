@@ -1,7 +1,8 @@
 """Exercises app.modules.zoho.contacts.service end to end (mocked
 
-Zoho HTTP calls via respx), including the local-mirror behavior:
-create/update upsert into zoho_contacts, delete soft-deletes it.
+Zoho HTTP calls via respx). Zoho is the source of truth for contact
+data, so these tests only verify the request/response mapping and
+error handling - there is no local copy to assert against.
 """
 
 import pytest
@@ -10,10 +11,8 @@ from httpx import Response
 
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
-from app.db.session import SessionLocal
 from app.modules.zoho.auth import service as zoho_auth
 from app.modules.zoho.contacts import service as contacts_service
-from app.modules.zoho.contacts.models import ZohoContact
 from app.modules.zoho.contacts.schemas import ContactRequest
 
 
@@ -34,17 +33,8 @@ def _crm_base():
     return f"{settings.zoho_api_base_url}/crm/v3"
 
 
-def _local_contact(external_id: str) -> ZohoContact | None:
-    with SessionLocal() as db:
-        return (
-            db.query(ZohoContact)
-            .filter(ZohoContact.external_id == external_id)
-            .first()
-        )
-
-
 @respx.mock
-async def test_create_contact_creates_then_mirrors_locally():
+async def test_create_contact_creates_then_fetches_record():
     base = _crm_base()
     respx.post(f"{base}/Contacts").mock(
         return_value=Response(
@@ -87,11 +77,6 @@ async def test_create_contact_creates_then_mirrors_locally():
     assert contact.id == "111"
     assert contact.email == "ada@example.com"
 
-    row = _local_contact("111")
-    assert row is not None
-    assert row.email == "ada@example.com"
-    assert row.is_deleted is False
-
 
 @respx.mock
 async def test_get_contact_not_found_raises():
@@ -131,7 +116,7 @@ async def test_list_contacts_maps_pagination_info():
 
 
 @respx.mock
-async def test_update_contact_overwrites_local_snapshot():
+async def test_update_contact_returns_updated_record():
     base = _crm_base()
     respx.put(f"{base}/Contacts/302").mock(
         return_value=Response(
@@ -154,7 +139,7 @@ async def test_update_contact_overwrites_local_snapshot():
         )
     )
 
-    await contacts_service.update_contact(
+    contact = await contacts_service.update_contact(
         "302",
         ContactRequest(
             first_name="Ada",
@@ -163,42 +148,12 @@ async def test_update_contact_overwrites_local_snapshot():
         ),
     )
 
-    row = _local_contact("302")
-    assert row.last_name == "Byron"
+    assert contact.last_name == "Byron"
 
 
 @respx.mock
-async def test_delete_contact_success_and_soft_deletes_local_row():
+async def test_delete_contact_success():
     base = _crm_base()
-    respx.post(f"{base}/Contacts").mock(
-        return_value=Response(
-            201,
-            json={
-                "data": [
-                    {
-                        "code": "SUCCESS",
-                        "status": "success",
-                        "details": {"id": "111"},
-                    }
-                ]
-            },
-        )
-    )
-    respx.get(f"{base}/Contacts/111").mock(
-        return_value=Response(
-            200,
-            json={
-                "data": [
-                    {
-                        "id": "111",
-                        "First_Name": "Ada",
-                        "Last_Name": "Lovelace",
-                        "Email": "ada@example.com",
-                    }
-                ]
-            },
-        )
-    )
     respx.delete(f"{base}/Contacts/111").mock(
         return_value=Response(
             200,
@@ -206,12 +161,4 @@ async def test_delete_contact_success_and_soft_deletes_local_row():
         )
     )
 
-    await contacts_service.create_contact(
-        ContactRequest(
-            first_name="Ada", last_name="Lovelace", email="ada@example.com"
-        )
-    )
     await contacts_service.delete_contact("111")  # should not raise
-
-    row = _local_contact("111")
-    assert row.is_deleted is True

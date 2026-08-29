@@ -38,31 +38,37 @@ app/
 ├── main.py               FastAPI app, lifespan, exception handlers, routers
 ├── core/                  config, logging, shared HTTP client, generic
 │                           schemas (envelope/pagination), exceptions
-├── db/                    SQLAlchemy engine + session factory only -
-│                           no shared table definitions live here
+├── db/                    SQLAlchemy engine + session factory - stores
+│                           OAuth tokens only, see "Local persistence"
 └── modules/
     ├── zoho/
     │   ├── auth/           OAuth2 code exchange + refresh (own ZohoToken table)
     │   ├── client.py        Zoho's own authenticated-request/retry flow
-    │   ├── contacts/        models.py + schemas.py + service.py + router.py
+    │   ├── contacts/        schemas.py + service.py + router.py
     │   └── leads/            (same shape)
     └── shopify/
         ├── auth/            OAuth2 (+ static-token fallback), own ShopifyToken table
         ├── client.py
-        ├── customers/        models.py + schemas.py + service.py + router.py
-        ├── orders/            (same shape; read-only, mirrored on read)
+        ├── customers/        schemas.py + service.py + router.py
+        ├── orders/            (same shape; read-only)
         └── webhooks.py       Shopify webhook receiver
 ```
 
 Each provider module is **fully self-contained**: its own auth flow
 and token table, its own HTTP client with its own retry/refresh
-logic, and one folder per resource holding that resource's local DB
-table, request/response schemas, business logic, and router. Nothing
-is shared between `zoho/` and `shopify/` beyond generic, non-provider
+logic, and one folder per resource holding that resource's
+request/response schemas, business logic, and router. Nothing is
+shared between `zoho/` and `shopify/` beyond generic, non-provider
 infrastructure in `core/` (settings, the pooled HTTP client, typed
 exceptions, the response envelope). Adding a new provider means
 copying this folder shape into `modules/<provider>/` and registering
 its routers in `main.py` — no other file changes.
+
+Resource folders (`contacts/`, `leads/`, `customers/`, `orders/`)
+deliberately have **no `models.py`** — Zoho and Shopify are the
+source of truth for that data, so there's nothing local to define a
+table for. Only `auth/` has a `models.py`, for the OAuth token. See
+[Local persistence](#local-persistence).
 
 See `CLAUDE.md` in the repo root for the full architecture rationale.
 
@@ -144,62 +150,59 @@ private app token) so existing non-OAuth setups keep working.
 
 ## Database schema
 
-Every module owns its own tables — there is no shared, generic
-table across providers. Each resource's `models.py` defines real,
-typed columns (not a JSON blob), so local data is directly queryable.
+Two tables, one per provider, both owned by that provider's `auth/`
+submodule:
 
 | Table | Owned by | Notes |
 |---|---|---|
-| `zoho_tokens` | `modules/zoho/auth/models.py` | single-row OAuth token; `access_token` never returned in API responses or logged |
-| `zoho_contacts` | `modules/zoho/contacts/models.py` | `external_id` (Zoho's ID, unique), name/email/phone/company, `is_deleted` |
-| `zoho_leads` | `modules/zoho/leads/models.py` | same shape as contacts + `lead_source` |
-| `shopify_tokens` | `modules/shopify/auth/models.py` | single-row OAuth/static token |
-| `shopify_customers` | `modules/shopify/customers/models.py` | `external_id` (Shopify's ID, unique), name/email/phone |
-| `shopify_orders` | `modules/shopify/orders/models.py` | `external_id`, denormalized customer id/email, price/currency/status |
+| `zoho_tokens` | `modules/zoho/auth/models.py` | single-row OAuth access + refresh token; `access_token` never returned in API responses or logged |
+| `shopify_tokens` | `modules/shopify/auth/models.py` | single-row OAuth (or static-token-derived) access token |
 
-All tables include `created_at`/`updated_at` (UTC). Tables are
-created automatically on startup (`init_db()` in the app lifespan,
-which imports every module's `models.py` before calling
-`Base.metadata.create_all`) — no manual migration step for this
-scope.
+That's the entire schema — see [Local persistence](#local-persistence)
+for why there's nothing else. Both tables include
+`created_at`/`updated_at` (UTC). Tables are created automatically on
+startup (`init_db()` in the app lifespan, which imports each
+provider's `auth/models.py` before calling
+`Base.metadata.create_all`) — no manual migration step for this scope.
 
 ## Local persistence
 
-Every create/update/delete a module's `service.py` sends to Zoho or
-Shopify is also mirrored into that resource's own local table, so
-BridgeLayer keeps its own durable copy of what it sent instead of
-only trusting the third party's copy of it. This isn't just a
-pass-through API call — the local write happens inside the same
-service function as the provider call, right after it succeeds:
+**Zoho and Shopify are the source of truth for all business data**
+(contacts, leads, customers, orders). BridgeLayer does not keep a
+local copy, cache, or mirror of that data — every `create`/`get`/
+`list`/`update`/`delete` call goes straight to the provider, and the
+response returned to the caller is exactly what the provider just
+said, mapped into this API's schema. There is no `models.py` in any
+`contacts/`/`leads/`/`customers/`/`orders/` folder.
 
-- **Create** (`create_contact`, `create_lead`, `create_customer`)
-  upserts the returned record locally, keyed by the provider's ID
-  (`external_id`).
-- **Update** (`update_contact`, `update_customer`) overwrites the
-  local row with the latest data.
-- **Delete** (`delete_contact`) soft-deletes the local row
-  (`is_deleted = true`) rather than removing it, so there's still a
-  local record of what used to exist even after Zoho no longer has
-  it.
-- **Orders are read-only** in this API (Shopify is the only place an
-  order is created), so `list_orders`/`get_order` upsert the local
-  `shopify_orders` row on every read instead — the only touchpoint
-  BridgeLayer has with that data.
+The local SQLite database exists for exactly one thing: **OAuth
+tokens** (`zoho_tokens`, `shopify_tokens` above), which is the
+minimal integration state actually needed to avoid re-authorizing on
+every restart.
 
-Each resource's `service.py` (e.g.
-`app/modules/zoho/contacts/service.py`) owns this end to end: it
-calls the provider via that module's `client.py`, maps the response
-to/from its own `schemas.py`, and upserts/soft-deletes its own
-`models.py` table directly via SQLAlchemy. There's no shared
-persistence helper — a new provider's resource gets the same
-guarantee by following the same four-file shape
-(`models.py`/`schemas.py`/`service.py`/`router.py`), not by importing
-something generic.
+This is a deliberate choice, not an oversight:
+- **Avoids staleness/sync bugs.** A cached copy of Zoho/Shopify data
+  can drift from reality (edited directly in Zoho's UI, a webhook
+  missed, a delete that didn't propagate). Not caching means there's
+  nothing that can ever be stale — every response reflects the
+  provider's current state at request time.
+- **Matches the assignment's scope.** The brief asks for a unified
+  API on top of Zoho/Shopify with token/session handling, not a
+  data-sync or offline-cache platform. A full local mirror is scope
+  creep for that goal and adds real failure modes (partial writes,
+  drift, migration churn) for no requirement it serves.
+- **Keeps auth and business logic separate.** Only `auth/service.py`
+  touches the database in each provider module (via `SessionLocal`);
+  `contacts/service.py`, `leads/service.py`, `customers/service.py`,
+  and `orders/service.py` never import `app.db` at all - they only
+  call their module's `client.py` and map the JSON response. That
+  separation is easy to verify by grep: `SessionLocal` only appears
+  under `modules/*/auth/`.
 
-Reads (`get_*`, `list_*`, aside from Orders above) still hit the
-provider directly — the provider stays the source of truth for
-reads, and the local mirror exists to guarantee nothing BridgeLayer
-*wrote* is ever silently lost, not to serve as a read cache.
+If a future requirement needs offline reads, analytics, or resilience
+to provider downtime, the right tool is a deliberate caching layer
+added on top of this - not folding persistence into every resource's
+write path by default.
 
 ## API usage
 
@@ -248,13 +251,11 @@ pytest
   handling
 - Zoho OAuth (code exchange, refresh), fully mocked with `respx` —
   no live API calls
-- Zoho Contacts/Leads CRUD, including local-mirror upsert on
-  create/update and soft-delete on delete
+- Zoho Contacts/Leads CRUD and request/response mapping
 - Shopify OAuth (authorization URL, shop/state/HMAC verification,
   code exchange), fully mocked
-- Shopify Customers CRUD and pagination (`Link` header parsing),
-  including local-mirror upsert on create/update
-- Shopify Orders list/get, including local-mirror upsert on read
+- Shopify Customers CRUD and pagination (`Link` header parsing)
+- Shopify Orders list/get and nested-customer mapping
 - API-level tests through `TestClient` (envelope shape, validation
   errors, 404s, a full Zoho contact lifecycle routed through the
   actual HTTP endpoints)
@@ -266,7 +267,7 @@ docker compose up --build
 ```
 
 Serves on `localhost:8000`; the SQLite file persists in a named
-volume so token and local-mirror state survive container restarts.
+volume so OAuth token state survives container restarts.
 
 ## Design decisions & known limitations
 
@@ -292,8 +293,8 @@ volume so token and local-mirror state survive container restarts.
   the same way as Zoho, via the shared HTTP client in `core/`.
 - **DB access is synchronous** (SQLAlchemy, not `asyncio`) despite
   the rest of the stack being async. The only DB traffic is small,
-  infrequent token/local-mirror reads and writes, so the tradeoff
-  favors simplicity over a fully async stack for this scope.
+  infrequent OAuth token reads and writes, so the tradeoff favors
+  simplicity over a fully async stack for this scope.
 - **Webhooks**: `POST /webhooks/shopify` verifies Shopify's HMAC
   signature (when `SHOPIFY_WEBHOOK_SECRET` is set) and logs the
   event — proof of the surface area, not a full event-processing

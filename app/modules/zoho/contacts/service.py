@@ -1,16 +1,14 @@
 """Facade for Zoho Contacts.
 
-Calls the Zoho API via client.py, adapts Zoho's JSON shape to/from
-ContactRequest/ContactResponse, and mirrors every create/update/
-delete into the local zoho_contacts table so BridgeLayer keeps its
-own durable copy of what it sent - not just a pass-through API call.
+Calls the Zoho API via client.py and adapts Zoho's JSON shape
+to/from ContactRequest/ContactResponse. Zoho is the source of truth
+for contact data - nothing is cached or duplicated locally; the
+local DB is reserved for OAuth tokens only (see auth/models.py).
 """
 
 from app.core.exceptions import NotFoundError, ProviderAPIError
 from app.core.schemas import PageMeta
-from app.db.session import SessionLocal
 from app.modules.zoho import client as zoho_client
-from app.modules.zoho.contacts.models import ZohoContact
 from app.modules.zoho.contacts.schemas import (
     ContactListResponse,
     ContactRequest,
@@ -53,37 +51,6 @@ def _first_result(response, action: str) -> dict:
     return results[0]
 
 
-def _save_local(contact: ContactResponse) -> None:
-    with SessionLocal() as db:
-        row = (
-            db.query(ZohoContact)
-            .filter(ZohoContact.external_id == contact.id)
-            .first()
-        )
-        if row is None:
-            row = ZohoContact(external_id=contact.id)
-            db.add(row)
-        row.first_name = contact.first_name
-        row.last_name = contact.last_name
-        row.email = contact.email
-        row.phone = contact.phone
-        row.company = contact.company
-        row.is_deleted = False
-        db.commit()
-
-
-def _mark_local_deleted(external_id: str) -> None:
-    with SessionLocal() as db:
-        row = (
-            db.query(ZohoContact)
-            .filter(ZohoContact.external_id == external_id)
-            .first()
-        )
-        if row is not None:
-            row.is_deleted = True
-            db.commit()
-
-
 async def create_contact(data: ContactRequest) -> ContactResponse:
     response = await zoho_client.authenticated_request(
         "POST",
@@ -91,9 +58,7 @@ async def create_contact(data: ContactRequest) -> ContactResponse:
         json={"data": [_to_zoho_payload(data)]},
     )
     result = _first_result(response, "create contact")
-    contact = await get_contact(result["details"]["id"])
-    _save_local(contact)
-    return contact
+    return await get_contact(result["details"]["id"])
 
 
 async def get_contact(contact_id: str) -> ContactResponse:
@@ -162,9 +127,7 @@ async def update_contact(
         json={"data": [payload]},
     )
     _first_result(response, "update contact")
-    contact = await get_contact(contact_id)
-    _save_local(contact)
-    return contact
+    return await get_contact(contact_id)
 
 
 async def delete_contact(contact_id: str) -> None:
@@ -172,4 +135,3 @@ async def delete_contact(contact_id: str) -> None:
         "DELETE", f"{zoho_client.base_url()}/Contacts/{contact_id}"
     )
     _first_result(response, "delete contact")
-    _mark_local_deleted(contact_id)

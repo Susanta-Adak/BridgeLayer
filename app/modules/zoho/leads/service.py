@@ -1,15 +1,13 @@
 """Facade for Zoho Leads.
 
-Calls the Zoho API via client.py, adapts Zoho's JSON shape to/from
-LeadRequest/LeadResponse, and mirrors every created lead into the
-local zoho_leads table.
+Calls the Zoho API via client.py and adapts Zoho's JSON shape
+to/from LeadRequest/LeadResponse. Zoho is the source of truth for
+lead data - nothing is cached or duplicated locally.
 """
 
 from app.core.exceptions import NotFoundError, ProviderAPIError
 from app.core.schemas import PageMeta
-from app.db.session import SessionLocal
 from app.modules.zoho import client as zoho_client
-from app.modules.zoho.leads.models import ZohoLead
 from app.modules.zoho.leads.schemas import (
     LeadListResponse,
     LeadRequest,
@@ -52,25 +50,6 @@ def _first_result(response, action: str) -> dict:
     return results[0]
 
 
-def _save_local(lead: LeadResponse) -> None:
-    with SessionLocal() as db:
-        row = (
-            db.query(ZohoLead)
-            .filter(ZohoLead.external_id == lead.id)
-            .first()
-        )
-        if row is None:
-            row = ZohoLead(external_id=lead.id)
-            db.add(row)
-        row.first_name = lead.first_name
-        row.last_name = lead.last_name
-        row.email = lead.email
-        row.phone = lead.phone
-        row.company = lead.company
-        row.lead_source = lead.lead_source
-        db.commit()
-
-
 async def create_lead(data: LeadRequest) -> LeadResponse:
     response = await zoho_client.authenticated_request(
         "POST",
@@ -78,9 +57,7 @@ async def create_lead(data: LeadRequest) -> LeadResponse:
         json={"data": [_to_zoho_payload(data)]},
     )
     result = _first_result(response, "create lead")
-    lead = await get_lead(result["details"]["id"])
-    _save_local(lead)
-    return lead
+    return await get_lead(result["details"]["id"])
 
 
 async def get_lead(lead_id: str) -> LeadResponse:
