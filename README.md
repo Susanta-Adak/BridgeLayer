@@ -59,8 +59,9 @@ BridgeLayer follows a provider-based architecture:
                     │ Token Expiry        │
                     │ Integration State   │
                     └─────────────────────┘
-
 ```
+
+```text
 app/
 ├── main.py            FastAPI app, lifespan, mounts api/v1 + unversioned /health
 ├── api/v1/router.py    composition root: mounts every module's router under /api/v1
