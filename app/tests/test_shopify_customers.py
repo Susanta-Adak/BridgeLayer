@@ -1,7 +1,7 @@
 """Exercises app.modules.shopify.customers.service end to end
 
-(mocked Shopify HTTP calls via respx), including the local-mirror
-upsert on create/update.
+(mocked Shopify HTTP calls via respx). Shopify is the source of
+truth for customer data.
 """
 
 import pytest
@@ -10,9 +10,7 @@ from httpx import Response
 
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
-from app.db.session import SessionLocal
 from app.modules.shopify.customers import service as customers_service
-from app.modules.shopify.customers.models import ShopifyCustomer
 from app.modules.shopify.customers.schemas import CustomerRequest
 
 
@@ -24,17 +22,8 @@ def _admin_base():
     )
 
 
-def _local_customer(external_id: str) -> ShopifyCustomer | None:
-    with SessionLocal() as db:
-        return (
-            db.query(ShopifyCustomer)
-            .filter(ShopifyCustomer.external_id == external_id)
-            .first()
-        )
-
-
 @respx.mock
-async def test_create_customer_creates_then_mirrors_locally():
+async def test_create_customer_returns_mapped_dto():
     base = _admin_base()
     respx.post(f"{base}/customers.json").mock(
         return_value=Response(
@@ -59,10 +48,6 @@ async def test_create_customer_creates_then_mirrors_locally():
 
     assert customer.id == "555"
     assert customer.email == "grace@example.com"
-
-    row = _local_customer("555")
-    assert row is not None
-    assert row.email == "grace@example.com"
 
 
 @respx.mock
@@ -93,7 +78,7 @@ async def test_list_customers_detects_has_more_from_link_header():
 
 
 @respx.mock
-async def test_update_customer_overwrites_local_snapshot():
+async def test_update_customer_returns_updated_record():
     base = _admin_base()
     respx.put(f"{base}/customers/502.json").mock(
         return_value=Response(
@@ -110,7 +95,7 @@ async def test_update_customer_overwrites_local_snapshot():
         )
     )
 
-    await customers_service.update_customer(
+    customer = await customers_service.update_customer(
         "502",
         CustomerRequest(
             first_name="Grace",
@@ -119,5 +104,4 @@ async def test_update_customer_overwrites_local_snapshot():
         ),
     )
 
-    row = _local_customer("502")
-    assert row.last_name == "Murray Hopper"
+    assert customer.last_name == "Murray Hopper"

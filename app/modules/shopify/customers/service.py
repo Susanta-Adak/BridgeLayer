@@ -1,17 +1,13 @@
 """Facade for Shopify Customers.
 
-Calls the Shopify API via client.py, adapts Shopify's JSON shape
-to/from CustomerRequest/CustomerResponse, and mirrors every create/
-update into the local shopify_customers table so BridgeLayer keeps
-its own durable copy of what it sent - not just a pass-through API
-call.
+Calls the Shopify API via client.py and adapts Shopify's JSON shape
+to/from CustomerRequest/CustomerResponse. Shopify is the source of
+truth for customer data - nothing is cached or duplicated locally.
 """
 
 from app.core.exceptions import NotFoundError, ProviderAPIError
 from app.core.schemas import PageMeta
-from app.db.session import SessionLocal
 from app.modules.shopify import client as shopify_client
-from app.modules.shopify.customers.models import ShopifyCustomer
 from app.modules.shopify.customers.schemas import (
     CustomerListResponse,
     CustomerRequest,
@@ -45,23 +41,6 @@ def _safe_json(response):
         return response.text
 
 
-def _save_local(customer: CustomerResponse) -> None:
-    with SessionLocal() as db:
-        row = (
-            db.query(ShopifyCustomer)
-            .filter(ShopifyCustomer.external_id == customer.id)
-            .first()
-        )
-        if row is None:
-            row = ShopifyCustomer(external_id=customer.id)
-            db.add(row)
-        row.first_name = customer.first_name
-        row.last_name = customer.last_name
-        row.email = customer.email
-        row.phone = customer.phone
-        db.commit()
-
-
 async def create_customer(data: CustomerRequest) -> CustomerResponse:
     response = await shopify_client.authenticated_request(
         "POST",
@@ -73,9 +52,7 @@ async def create_customer(data: CustomerRequest) -> CustomerResponse:
             "Shopify failed to create customer",
             details={"response": _safe_json(response)},
         )
-    customer = _from_shopify_record(response.json()["customer"])
-    _save_local(customer)
-    return customer
+    return _from_shopify_record(response.json()["customer"])
 
 
 async def get_customer(customer_id: str) -> CustomerResponse:
@@ -117,6 +94,4 @@ async def update_customer(
             "Shopify failed to update customer",
             details={"response": _safe_json(response)},
         )
-    customer = _from_shopify_record(response.json()["customer"])
-    _save_local(customer)
-    return customer
+    return _from_shopify_record(response.json()["customer"])

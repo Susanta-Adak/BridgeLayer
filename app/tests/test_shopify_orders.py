@@ -1,8 +1,7 @@
 """Exercises app.modules.shopify.orders.service end to end (mocked
 
-Shopify HTTP calls via respx), including the local-mirror upsert on
-every list/get - orders are read-only, so that's the only place a
-local copy can be taken.
+Shopify HTTP calls via respx). Orders are read-only in this API and
+Shopify stays the source of truth.
 """
 
 import pytest
@@ -11,9 +10,7 @@ from httpx import Response
 
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
-from app.db.session import SessionLocal
 from app.modules.shopify.orders import service as orders_service
-from app.modules.shopify.orders.models import ShopifyOrder
 
 
 def _admin_base():
@@ -25,7 +22,7 @@ def _admin_base():
 
 
 @respx.mock
-async def test_list_orders_maps_order_and_mirrors_locally():
+async def test_list_orders_maps_order_and_nested_customer():
     base = _admin_base()
     respx.get(f"{base}/orders.json").mock(
         return_value=Response(
@@ -58,16 +55,6 @@ async def test_list_orders_maps_order_and_mirrors_locally():
     assert order.order_id == "9001"
     assert order.order_status == "paid"
     assert order.customer.email == "grace@example.com"
-
-    with SessionLocal() as db:
-        row = (
-            db.query(ShopifyOrder)
-            .filter(ShopifyOrder.external_id == "9001")
-            .first()
-        )
-    assert row is not None
-    assert row.customer_email == "grace@example.com"
-    assert row.total_price == "42.00"
 
 
 @respx.mock

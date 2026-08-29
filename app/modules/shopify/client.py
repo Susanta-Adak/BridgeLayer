@@ -1,11 +1,9 @@
 """Low-level authenticated HTTP calls to the Shopify Admin API.
 
-Standalone: owns its own token-lookup / retry flow, with nothing
-shared with Zoho's client.py. Shopify's offline token doesn't
-expire, and a static custom-app token doesn't refresh either, so
-there's no refresh-on-401 branch here beyond re-reading whatever
-token is on file - a genuinely invalid token surfaces as a plain
-401/403 from Shopify.
+Shopify's offline token doesn't expire, and a static custom-app
+token doesn't refresh either, so there's no refresh-on-401 branch
+here beyond re-reading whatever token is on file - a genuinely
+invalid token surfaces as a plain 401/403 from Shopify.
 """
 
 import httpx

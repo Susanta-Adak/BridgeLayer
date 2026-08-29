@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     zoho_client_id: str = ""
     zoho_client_secret: str = ""
     zoho_redirect_uri: str = ""
-    zoho_accounts_base_url: str = "https://accounts.zoho.com"
-    zoho_api_base_url: str = "https://www.zohoapis.com"
+    zoho_accounts_base_url: str = "https://accounts.zoho.in"
+    zoho_api_base_url: str = "https://www.zohoapis.in"
 
     shopify_shop_domain: str = ""
     shopify_access_token: str = ""
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     shopify_client_id: str = ""
     shopify_client_secret: str = ""
     shopify_redirect_uri: str = (
-        "http://localhost:8000/shopify/auth/callback"
+        "http://localhost:8000/api/v1/shopify/auth/callback"
     )
     shopify_scopes: str = "read_customers,write_customers,read_orders"
 

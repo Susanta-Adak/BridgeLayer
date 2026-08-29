@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
 
 from app.core.deps import envelope
 from app.core.exceptions import ValidationError
@@ -13,12 +12,6 @@ router = APIRouter(prefix="/shopify/auth", tags=["shopify"])
 async def authorize():
     url = service.build_authorization_url()
     return envelope(AuthUrlResponse(authorization_url=url))
-
-
-@router.get("/authorize/redirect")
-async def authorize_redirect():
-    """Convenience endpoint: redirect the browser straight to Shopify."""
-    return RedirectResponse(service.build_authorization_url())
 
 
 @router.get("/callback")

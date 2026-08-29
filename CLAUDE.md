@@ -26,7 +26,7 @@ pytest
 pytest app/tests/test_zoho_contacts.py
 
 # Run a single test by name
-pytest app/tests/test_zoho_contacts.py::test_create_contact_creates_then_mirrors_locally
+pytest app/tests/test_zoho_contacts.py::test_create_contact_creates_then_fetches_record
 
 # Run via Docker (persists the SQLite file in a named volume)
 docker compose up --build
@@ -46,7 +46,7 @@ There is no configured linter/formatter (no ruff/black/flake8 config in this rep
 - Handles OAuth/token lifecycle per provider so callers never touch it directly
 - Gives each provider its own consistent request/response contract (its own `schemas.py` per resource)
 - Validates input before burning external API calls
-- Persists tokens **and a durable local copy of every record it touches** (SQLite) — not just a pass-through API call
+- Persists OAuth tokens locally (SQLite) — **Zoho and Shopify remain the source of truth for all business data**, so contacts/leads/customers/orders are never cached or duplicated locally (see the README's "Local persistence" section for why)
 - Returns clean, consistent errors instead of leaking raw provider errors
 - Is organized so a third provider (e.g. HubSpot, WooCommerce) can be added by copying an existing module's folder shape into `modules/<provider>/`, without editing Zoho/Shopify code
 
@@ -68,12 +68,12 @@ There is no configured linter/formatter (no ruff/black/flake8 config in this rep
 
 ## 3. Architecture Principles
 
-1. **Package by feature (provider), not by layer.** Each provider lives entirely under `app/modules/<provider>/`: its own auth flow + token table, its own HTTP client, and one subfolder per resource (`contacts/`, `leads/`, `customers/`, `orders/`) holding that resource's `models.py` (local DB table), `schemas.py` (request/response), `service.py` (business logic + provider call + local persistence), and `router.py` (FastAPI router). Nothing crosses from `modules/zoho/` into `modules/shopify/` or vice versa.
-2. **`core/` and `db/` hold only generic, non-provider infrastructure.** `core/` = config, logging, the shared pooled HTTP client, typed exceptions, and the generic response-envelope/pagination schemas. `db/` = the SQLAlchemy engine and session factory only — no table definitions live here; every table is owned by the module that uses it.
-3. **No provider-specific logic leaks into `core/` or `db/`.** Adding a new provider should only mean creating `app/modules/<provider>/` and registering its routers in `main.py`.
+1. **Package by feature (provider), not by layer.** Each provider lives entirely under `app/modules/<provider>/`: its own auth flow + token table, its own HTTP client, and one subfolder per resource (`contacts/`, `leads/`, `customers/`, `orders/`) holding that resource's `schemas.py` (request/response), `service.py` (business logic + provider call), and `router.py` (FastAPI router). Nothing crosses from `modules/zoho/` into `modules/shopify/` or vice versa.
+2. **`core/` and `db/` hold only generic, non-provider infrastructure.** `core/` = config, logging, the shared pooled HTTP client, typed exceptions, and the generic response-envelope/pagination schemas. `db/` = the SQLAlchemy engine and session factory only — no table definitions live here; only each provider's `auth/models.py` owns a table.
+3. **No provider-specific logic leaks into `core/` or `db/`.** Adding a new provider should only mean creating `app/modules/<provider>/` and registering its routers in `app/api/v1/router.py`.
 4. **Consistent response envelope** across every provider: `{ "success": bool, "data": ..., "error": {...} }` (defined once, in `core/schemas.py`).
 5. **Tokens are never returned in API responses or logged.**
-6. **Every write is mirrored locally.** A resource's `service.py` upserts (or soft-deletes) its own local table immediately after a successful provider call — see Section 9's local-persistence rule.
+6. **Zoho and Shopify are the source of truth.** Resource `service.py` files (`contacts/`, `leads/`, `customers/`, `orders/`) never touch the local DB — they call the provider and return its response, mapped. Only `auth/service.py` reads/writes the database (the OAuth token), keeping authentication cleanly separate from business logic — see Section 9.
 
 ---
 
@@ -101,7 +101,7 @@ This version intentionally uses fewer GoF patterns than a classic layered design
 
 | Pattern | Category | Where it's used | Why |
 |---|---|---|---|
-| **[Facade](https://refactoring.guru/design-patterns/facade)** | Structural | Every resource's `service.py` (e.g. `modules/zoho/contacts/service.py`) | The router (`router.py`) talks to one simple function (e.g. `service.create_contact(data)`), which internally coordinates the provider call, JSON mapping, and local DB persistence — hiding that complexity from `router.py`. |
+| **[Facade](https://refactoring.guru/design-patterns/facade)** | Structural | Every resource's `service.py` (e.g. `modules/zoho/contacts/service.py`) | The router (`router.py`) talks to one simple function (e.g. `service.create_contact(data)`), which internally coordinates the provider call and JSON mapping — hiding that complexity from `router.py`. |
 | **[Adapter](https://refactoring.guru/design-patterns/adapter)** | Structural | Inside each resource's `service.py` (e.g. `_from_zoho_record`, `_to_zoho_payload`) | Zoho and Shopify return wildly different JSON shapes. Each service maps its provider's raw response to/from that module's own `schemas.py` types — inline now, since there's no cross-provider DTO to adapt into. |
 | **[Singleton](https://refactoring.guru/design-patterns/singleton)** *(lightweight, via DI)* | Creational | `core/http_client.py` shared async client, DB session factory | One shared, connection-pooled HTTP client and DB session per app lifecycle instead of creating new ones per request. This is generic infrastructure, not provider-specific, so it stays in `core/`. |
 
@@ -113,8 +113,8 @@ This version intentionally uses fewer GoF patterns than a classic layered design
 ### How this achieves "easy to add a new provider"
 
 To add, say, HubSpot, a contributor should only need to:
-1. Create `app/modules/hubspot/` with the same internal shape as `modules/zoho/`: `auth/` (own token table + OAuth logic), `client.py` (own request/retry logic), and one subfolder per resource with `models.py`/`schemas.py`/`service.py`/`router.py`.
-2. Register its routers in `app/main.py` (`app.include_router(...)`).
+1. Create `app/modules/hubspot/` with the same internal shape as `modules/zoho/`: `auth/` (own token table + OAuth logic), `client.py` (own request/retry logic), and one subfolder per resource with `schemas.py`/`service.py`/`router.py` (no `models.py` — HubSpot stays the source of truth for its own data, same as Zoho/Shopify).
+2. Register its routers in `app/api/v1/router.py` (`router.include_router(...)`) — see "API versioning" below.
 
 **Nothing in `core/`, `db/`, or the Zoho/Shopify modules should need to change.** There is currently no third provider module in the codebase to demonstrate this live — an earlier in-memory `demo` module that proved it out was removed. The claim rests on `modules/zoho/` and `modules/shopify/` already being structurally independent of each other, not on shared code either of them would need to be pulled out of.
 
@@ -125,7 +125,12 @@ To add, say, HubSpot, a contributor should only need to:
 ```
 bridgelayer/
 ├── app/
-│   ├── main.py                    # FastAPI app, lifespan, router registration
+│   ├── main.py                    # FastAPI app, lifespan; mounts api/v1 + unversioned /health
+│   ├── api/
+│   │   └── v1/
+│   │       └── router.py          # composition root: mounts every module's router under /api/v1
+│   │                               # (a future api/v2/router.py would be a sibling package, not
+│   │                               #  a rewrite of this one - see "API versioning" below)
 │   ├── core/
 │   │   ├── config.py              # env/.env settings
 │   │   ├── logging.py
@@ -144,16 +149,15 @@ bridgelayer/
 │   │   │   │   └── router.py      # /zoho/auth/*
 │   │   │   ├── client.py          # Zoho's own authenticated_request + retry/refresh
 │   │   │   ├── contacts/
-│   │   │   │   ├── models.py      # ZohoContact (local mirror table)
 │   │   │   │   ├── schemas.py     # ContactRequest/ContactResponse/ContactListResponse
-│   │   │   │   ├── service.py     # Facade: call Zoho, map JSON, save locally
+│   │   │   │   ├── service.py     # Facade: call Zoho, map JSON, return it - no local DB
 │   │   │   │   └── router.py      # /zoho/contacts router
 │   │   │   └── leads/             # same shape as contacts/
 │   │   └── shopify/
 │   │       ├── auth/              # same shape as zoho/auth/, own ShopifyToken table
 │   │       ├── client.py
 │   │       ├── customers/         # same shape as zoho/contacts/
-│   │       ├── orders/            # same shape, read-only (mirrored on read, not write)
+│   │       ├── orders/            # same shape, read-only
 │   │       └── webhooks.py        # /webhooks/shopify
 │   └── tests/
 ├── .env.example
@@ -161,6 +165,13 @@ bridgelayer/
 ├── requirements.txt
 └── README.md
 ```
+
+Every route comment above (`/zoho/auth/*`, `/zoho/contacts`,
+`/webhooks/shopify`, ...) is the router's own **relative** prefix -
+`app/api/v1/router.py` mounts all of them under `/api/v1`, so the
+real path is e.g. `/api/v1/zoho/contacts`. `GET /health` (in
+`main.py`, not a module) is the one endpoint that stays unversioned.
+See the README's "API versioning" section for the full rationale.
 
 ---
 
@@ -213,5 +224,8 @@ bridgelayer/
 - Every provider method should raise typed exceptions (`ProviderAuthError`, `ProviderAPIError`, `ProviderTimeoutError`, all from `core/exceptions.py`) caught centrally and mapped to HTTP responses — don't let raw provider exceptions bubble to the API layer.
 - Write each module's `client.py` so it's testable without live API calls (respx-mock at the transport level via the shared `core/http_client.py`).
 - Keep provider modules fully independent — no shared provider-specific code between `modules/zoho/` and `modules/shopify/`, only shared *generic* utilities from `core/` (HTTP client, exceptions, envelope/pagination schemas).
-- **Every create/update/delete a resource's `service.py` sends to its provider must also be mirrored into that resource's own local table** (upsert on create/update, soft-delete via `is_deleted` on delete; for read-only resources like Shopify Orders, mirror on every `list`/`get` instead since that's the only touchpoint). This is what makes "persists tokens and integration data locally" (Section 1) true, not aspirational. Do this directly with `SessionLocal()` inside `service.py` — there is no shared persistence helper to call; a new provider's resource gets the same guarantee by following the same `models.py`/`schemas.py`/`service.py`/`router.py` shape, not by importing something generic.
+- **Never add a `models.py` to a resource folder (`contacts/`, `leads/`, `customers/`, `orders/`).** Zoho and Shopify are the source of truth for that data — `service.py` calls the provider and returns its response, mapped, and nothing more. If a future requirement genuinely needs local caching, that's a deliberate decision to revisit (and re-document in the README), not a default to reach for per-resource.
+- **The database is for OAuth tokens only.** Only `auth/models.py` and `auth/service.py` (per provider) may import `app.db`/use `SessionLocal`. This is what keeps authentication cleanly separate from business logic — a resource's `service.py` should never need a DB session for anything.
+- **Module routers stay unversioned; `app/api/v1/router.py` is the only place that adds `/api/v1`.** A resource's `router.py` should keep its relative prefix (e.g. `/zoho/contacts`, never `/api/v1/zoho/contacts`) so it stays mountable under any future version. New routers get wired into `app/api/v1/router.py`, not given their own version prefix. `app/api/` is a package precisely so a future `app/api/v2/router.py` can exist as a sibling package next to `v1/` without touching it — do not create `app/api/v2/` until a real v2 requirement exists.
+- **When a specific resource's contract genuinely diverges in a future version** (e.g. v2 renames/adds response fields, changes pagination shape), don't touch that resource's existing `schemas.py`/`router.py`, and don't fork the whole module. Add a `v2/` subfolder inside that one resource's folder (e.g. `modules/zoho/contacts/v2/`) holding only `schemas.py` + `router.py`. `service.py` (and `client.py`/`auth/`) stay at the resource root, shared and untouched — they talk to the provider and know nothing about API versions. `v2/router.py` calls the existing (v1) `service.py` functions for the actual provider call, then adapts the v1 response schema into the v2 one (a `from_v1(...)` classmethod on the v2 model is the natural place for this — same Adapter pattern already used for `_from_zoho_record`). The v2 class can reuse the exact same class name as v1 (e.g. `ContactResponse`) with zero collision, since Python distinguishes them by module path (`...contacts.schemas` vs `...contacts.v2.schemas`), not by name. `app/api/v2/router.py` then imports the v2 router for that one resource and the *unchanged* `router` objects for every other resource — the same `APIRouter` instance can safely be `include_router()`'d into both `api/v1/router.py` and `api/v2/router.py`, since FastAPI's `include_router()` only reads the child router's routes and builds new route objects on the parent; it never mutates the child. Only add a resource's own `v2/service.py` (following `service.py`'s existing shape) in the rare case v2 needs a raw provider field v1's mapping never captured. Do not create any resource-level `v2/` folder until a real v2 requirement exists for that resource.
 - When in doubt about scope, remember: this demonstrates *pattern*, not full platform coverage — don't over-build beyond the listed endpoints unless going for bonus points.

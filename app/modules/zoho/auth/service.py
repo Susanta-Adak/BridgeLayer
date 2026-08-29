@@ -1,7 +1,6 @@
 """Zoho OAuth 2.0: authorization-code exchange + refresh-token flow.
 
-Standalone to this module - owns its own ZohoToken table and its own
-refresh logic, with nothing shared with Shopify's auth module.
+Owns its own ZohoToken table and refresh logic.
 """
 
 import datetime
