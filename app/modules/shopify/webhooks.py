@@ -18,7 +18,7 @@ from app.core.exceptions import ProviderAuthError
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 
 
 @router.post("/shopify")

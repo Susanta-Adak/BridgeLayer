@@ -4,7 +4,7 @@ from app.core.deps import envelope
 from app.modules.zoho.contacts import service
 from app.modules.zoho.contacts.schemas import ContactRequest
 
-router = APIRouter(prefix="/zoho/contacts", tags=["zoho"])
+router = APIRouter(prefix="/zoho/contacts", tags=["Zoho CRM"])
 
 
 @router.post("", status_code=201)

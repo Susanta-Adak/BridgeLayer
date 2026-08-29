@@ -3,7 +3,7 @@ from fastapi import APIRouter, Query
 from app.core.deps import envelope
 from app.modules.shopify.orders import service
 
-router = APIRouter(prefix="/shopify/orders", tags=["shopify"])
+router = APIRouter(prefix="/shopify/orders", tags=["Shopify"])
 
 
 @router.get("")
