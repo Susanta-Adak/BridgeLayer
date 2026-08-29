@@ -30,6 +30,9 @@ def _from_zoho_record(record: dict) -> Contact:
     )
 
 
+_LIST_FIELDS = "id,First_Name,Last_Name,Email,Phone,Account_Name"
+
+
 class ZohoContactsMixin:
     """Mixed into ZohoCRMProvider; assumes self.authenticated_request
 
@@ -49,8 +52,16 @@ class ZohoContactsMixin:
         response = await self.authenticated_request(
             "GET", f"{self.base_url}/Contacts/{contact_id}"
         )
-        if response.status_code == 404:
+        if response.status_code in (404, 204):
             raise NotFoundError(f"Zoho contact {contact_id} not found")
+        if response.status_code != 200:
+            raise ProviderAPIError(
+                f"Zoho failed to get contact {contact_id}",
+                details={
+                    "status_code": response.status_code,
+                    "response": response.text,
+                },
+            )
         data = response.json().get("data") or []
         if not data:
             raise NotFoundError(f"Zoho contact {contact_id} not found")
@@ -60,10 +71,22 @@ class ZohoContactsMixin:
         response = await self.authenticated_request(
             "GET",
             f"{self.base_url}/Contacts",
-            params={"page": page, "per_page": per_page},
+            params={
+                "page": page,
+                "per_page": per_page,
+                "fields": _LIST_FIELDS,
+            },
         )
         if response.status_code == 204:
             return Page(items=[], page=page, per_page=per_page, has_more=False)
+        if response.status_code != 200:
+            raise ProviderAPIError(
+                "Zoho failed to list contacts",
+                details={
+                    "status_code": response.status_code,
+                    "response": response.text,
+                },
+            )
         body = response.json()
         items = [_from_zoho_record(r) for r in body.get("data", [])]
         info = body.get("info", {})

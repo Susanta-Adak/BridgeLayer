@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     shopify_access_token: str = ""
     shopify_api_version: str = "2024-07"
     shopify_webhook_secret: str = ""
+    shopify_client_id: str = ""
+    shopify_client_secret: str = ""
+    shopify_redirect_uri: str = (
+        "http://localhost:8000/shopify/auth/callback"
+    )
+    shopify_scopes: str = "read_customers,write_customers,read_orders"
 
     http_timeout_seconds: float = 15.0
     http_max_retries: int = 3
