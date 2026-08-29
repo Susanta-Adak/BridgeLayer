@@ -18,6 +18,11 @@ os.environ["ZOHO_API_BASE_URL"] = "https://api.zoho.test"
 os.environ["SHOPIFY_SHOP_DOMAIN"] = "test-shop.myshopify.com"
 os.environ["SHOPIFY_ACCESS_TOKEN"] = "test-shopify-token"
 os.environ["SHOPIFY_API_VERSION"] = "2024-07"
+os.environ["SHOPIFY_CLIENT_ID"] = "test-shopify-client-id"
+os.environ["SHOPIFY_CLIENT_SECRET"] = "test-shopify-client-secret"
+os.environ["SHOPIFY_REDIRECT_URI"] = (
+    "http://localhost:8000/shopify/auth/callback"
+)
 os.environ["HTTP_BACKOFF_BASE_SECONDS"] = "0.01"
 
 import pytest  # noqa: E402

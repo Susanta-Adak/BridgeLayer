@@ -147,8 +147,11 @@ bridgelayer/
 - Leads: Create / List / Get by ID
 - Fields: `first_name`, `last_name`, `email`, `phone`, `company` (+ `lead_source` for leads)
 
-### Shopify (Admin API token auth)
-- Auth: API key/access token, kept isolated from business logic
+### Shopify (OAuth 2.0, static-token fallback)
+- Auth: authorization code exchange (shop/state/HMAC verification
+  on callback) for a permanent offline access token, stored in the
+  `tokens` table. Falls back to a static `SHOPIFY_ACCESS_TOKEN`
+  (custom/private app) if no OAuth token has been stored yet.
 - Customers: Create / Get / List / Update
 - Orders: List / Get by ID
 - Order fields exposed: `order_id`, `customer`, `total_price`, `currency`, `order_status`, `created_at`

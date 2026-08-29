@@ -23,6 +23,7 @@ envelope:
 - [Setup](#setup)
 - [Configuration](#configuration)
 - [Zoho OAuth flow](#zoho-oauth-flow)
+- [Shopify OAuth flow](#shopify-oauth-flow)
 - [Database schema](#database-schema)
 - [API usage](#api-usage)
 - [Extensibility: the demo provider](#extensibility-the-demo-provider)
@@ -43,7 +44,7 @@ app/
 │   ├── factory.py        ProviderFactory (Factory Method)
 │   ├── schemas.py         unified internal DTOs
 │   ├── zoho/              OAuth2, CRM v3 Contacts/Leads (Adapter)
-│   ├── shopify/           static-token auth, Customers/Orders (Adapter)
+│   ├── shopify/           OAuth2 (+ static-token fallback), Customers/Orders (Adapter)
 │   └── demo_provider/     in-memory stub CRM proving extensibility
 ├── services/             Facade layer api/ talks to
 └── api/                  routers + request/response schemas
@@ -80,7 +81,9 @@ is hardcoded; `.env` is gitignored.
 | `ZOHO_ACCOUNTS_BASE_URL` | Data-center specific (`.com`, `.eu`, `.in`, ...) |
 | `ZOHO_API_BASE_URL` | Data-center specific |
 | `SHOPIFY_SHOP_DOMAIN` | `your-store.myshopify.com` |
-| `SHOPIFY_ACCESS_TOKEN` | Custom/private app Admin API access token |
+| `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` | Preferred: from a Shopify app's Client credentials (Partner Dashboard) |
+| `SHOPIFY_REDIRECT_URI` | Must match the redirect URI registered on the Shopify app |
+| `SHOPIFY_ACCESS_TOKEN` | Fallback: a custom/private app's static Admin API access token, used only if no OAuth token has been stored yet |
 | `SHOPIFY_WEBHOOK_SECRET` | Optional; enables HMAC verification on `/webhooks/shopify` |
 
 ## Zoho OAuth flow
@@ -101,8 +104,31 @@ After that, every Zoho call transparently refreshes the access
 token when it's expired or when the API returns a 401 — callers
 never see a token.
 
-Shopify uses a static custom-app Admin API access token instead of
-an OAuth dance, so no authorization step is needed there.
+## Shopify OAuth flow
+
+Same shape as Zoho's flow, but with two extra checks on the callback
+that Zoho doesn't need — Shopify requires verifying the redirect
+actually came from Shopify:
+
+1. `GET /shopify/auth/authorize` → returns `{ authorization_url }`
+   (also generates and remembers a one-time `state` nonce). Open it
+   in a browser (or hit `GET /shopify/auth/authorize/redirect`).
+2. Approve access. Shopify redirects to `SHOPIFY_REDIRECT_URI` with
+   `shop`, `code`, `state`, `timestamp`, and `hmac` query params.
+3. That redirect must land on `GET /shopify/auth/callback`, which:
+   - confirms `shop` matches the configured `SHOPIFY_SHOP_DOMAIN`,
+   - confirms `state` matches a nonce this app actually issued
+     (single-use, defends against CSRF),
+   - recomputes the HMAC over the query string using
+     `SHOPIFY_CLIENT_SECRET` and compares it to the `hmac` param
+     (confirms Shopify signed the redirect),
+   - then exchanges `code` for a permanent offline access token and
+     stores it in the `tokens` table (provider `"shopify"`).
+
+Shopify's offline access token doesn't expire, so there's no
+refresh cycle to manage. If no OAuth token has been stored yet, the
+provider falls back to a static `SHOPIFY_ACCESS_TOKEN` (custom/
+private app token) so existing non-OAuth setups keep working.
 
 ## Database schema
 
@@ -111,7 +137,7 @@ Single table, `tokens`:
 | Column | Type | Notes |
 |---|---|---|
 | `id` | int, PK | |
-| `provider` | string, unique | e.g. `"zoho"` |
+| `provider` | string, unique | `"zoho"` or `"shopify"` |
 | `access_token` | string | never returned in API responses or logged |
 | `refresh_token` | string, nullable | |
 | `expires_at` | datetime, nullable | UTC |
@@ -178,13 +204,15 @@ curl -X POST localhost:8000/demo/contacts \
 pytest
 ```
 
-31 tests cover:
+40 tests cover:
 - the Template Method's 401-refresh-retry behavior, in isolation
   from any real provider
 - the shared HTTP client's retry-with-backoff and rate-limit
   handling
 - Zoho OAuth (code exchange, refresh) and Contacts/Leads CRUD,
   fully mocked with `respx` — no live API calls
+- Shopify OAuth (authorization URL, shop/state/HMAC verification,
+  code exchange), fully mocked
 - Shopify Customers/Orders CRUD and pagination (`Link` header
   parsing), fully mocked
 - `ProviderFactory` registration and unknown-provider errors

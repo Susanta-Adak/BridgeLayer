@@ -10,9 +10,10 @@ from app.db.database import Base
 class Token(Base):
     """OAuth / API credentials for a single provider.
 
-    One row per provider name (e.g. "zoho"). Shopify uses a static
-    admin API token configured via env vars, so it doesn't need a
-    row here, but the table supports it if that ever changes.
+    One row per provider name (e.g. "zoho", "shopify"). Shopify's
+    offline access token never expires, so `expires_at` and
+    `refresh_token` stay null for that row; Shopify falls back to a
+    static env-configured token if no row exists yet.
     """
 
     __tablename__ = "tokens"

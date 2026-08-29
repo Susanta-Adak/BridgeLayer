@@ -21,11 +21,19 @@ class ShopifyCommerceProvider(
         )
 
     async def get_access_token(self) -> str:
-        return shopify_auth.get_static_access_token()
+        return self._current_token()
 
     async def refresh_token(self) -> str:
-        # Static custom-app tokens don't expire/refresh; re-raise the
-        # same lookup so a misconfigured token surfaces the same way.
+        # Neither an OAuth offline token nor a static custom-app
+        # token can be silently refreshed - re-read whatever's on
+        # file so a genuinely invalid token surfaces a clear
+        # ProviderAuthError via the base class's retry-once check.
+        return self._current_token()
+
+    def _current_token(self) -> str:
+        token = shopify_auth.load_token()
+        if token is not None:
+            return token.access_token
         return shopify_auth.get_static_access_token()
 
     def is_token_expired(self) -> bool:

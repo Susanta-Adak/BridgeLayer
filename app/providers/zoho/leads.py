@@ -30,6 +30,9 @@ def _from_zoho_record(record: dict) -> Lead:
     )
 
 
+_LIST_FIELDS = "id,First_Name,Last_Name,Email,Phone,Company,Lead_Source"
+
+
 class ZohoLeadsMixin:
     """Mixed into ZohoCRMProvider; assumes self.authenticated_request
 
@@ -49,8 +52,16 @@ class ZohoLeadsMixin:
         response = await self.authenticated_request(
             "GET", f"{self.base_url}/Leads/{lead_id}"
         )
-        if response.status_code == 404:
+        if response.status_code in (404, 204):
             raise NotFoundError(f"Zoho lead {lead_id} not found")
+        if response.status_code != 200:
+            raise ProviderAPIError(
+                f"Zoho failed to get lead {lead_id}",
+                details={
+                    "status_code": response.status_code,
+                    "response": response.text,
+                },
+            )
         data = response.json().get("data") or []
         if not data:
             raise NotFoundError(f"Zoho lead {lead_id} not found")
@@ -60,10 +71,22 @@ class ZohoLeadsMixin:
         response = await self.authenticated_request(
             "GET",
             f"{self.base_url}/Leads",
-            params={"page": page, "per_page": per_page},
+            params={
+                "page": page,
+                "per_page": per_page,
+                "fields": _LIST_FIELDS,
+            },
         )
         if response.status_code == 204:
             return Page(items=[], page=page, per_page=per_page, has_more=False)
+        if response.status_code != 200:
+            raise ProviderAPIError(
+                "Zoho failed to list leads",
+                details={
+                    "status_code": response.status_code,
+                    "response": response.text,
+                },
+            )
         body = response.json()
         items = [_from_zoho_record(r) for r in body.get("data", [])]
         info = body.get("info", {})

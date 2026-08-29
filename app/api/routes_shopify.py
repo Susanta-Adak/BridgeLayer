@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import RedirectResponse
 
 from app.api.deps import envelope
 from app.api.schemas import (
+    AuthUrlResponse,
     CustomerListResponse,
     CustomerRequest,
     CustomerResponse,
@@ -9,10 +11,43 @@ from app.api.schemas import (
     OrderResponse,
     PageMeta,
 )
+from app.core.exceptions import ValidationError
 from app.providers.schemas import CustomerInput
 from app.services import shopify_service
 
 router = APIRouter(prefix="/shopify", tags=["shopify"])
+
+
+@router.get("/auth/authorize")
+async def authorize():
+    url = shopify_service.get_authorization_url()
+    return envelope(AuthUrlResponse(authorization_url=url))
+
+
+@router.get("/auth/authorize/redirect")
+async def authorize_redirect():
+    """Convenience endpoint: redirect the browser straight to Shopify."""
+    return RedirectResponse(shopify_service.get_authorization_url())
+
+
+@router.get("/auth/callback")
+async def auth_callback(request: Request):
+    """Shopify signs every query param it sends (which can include
+
+    extras like `host` depending on app type), so the HMAC has to be
+    verified over whatever was actually sent - not a hardcoded
+    subset of fields.
+    """
+    params = dict(request.query_params)
+    hmac_signature = params.pop("hmac", None)
+    params.pop("signature", None)
+    if not hmac_signature:
+        raise ValidationError("Missing hmac query parameter")
+
+    await shopify_service.handle_oauth_callback(
+        params=params, hmac_signature=hmac_signature
+    )
+    return envelope({"authorized": True})
 
 
 @router.post("/customers", status_code=201)
