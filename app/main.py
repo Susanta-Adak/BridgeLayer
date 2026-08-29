@@ -6,15 +6,17 @@ from app.core.exceptions import register_exception_handlers
 from app.core.http_client import close_http_client
 from app.core.logging import configure_logging
 from app.db.database import init_db
-from app.modules.shopify.auth.api import router as shopify_auth_router
-from app.modules.shopify.customers.api import (
+from app.modules.shopify.auth.router import router as shopify_auth_router
+from app.modules.shopify.customers.router import (
     router as shopify_customers_router,
 )
-from app.modules.shopify.orders.api import router as shopify_orders_router
+from app.modules.shopify.orders.router import (
+    router as shopify_orders_router,
+)
 from app.modules.shopify.webhooks import router as shopify_webhooks_router
-from app.modules.zoho.auth.api import router as zoho_auth_router
-from app.modules.zoho.contacts.api import router as zoho_contacts_router
-from app.modules.zoho.leads.api import router as zoho_leads_router
+from app.modules.zoho.auth.router import router as zoho_auth_router
+from app.modules.zoho.contacts.router import router as zoho_contacts_router
+from app.modules.zoho.leads.router import router as zoho_leads_router
 
 
 @asynccontextmanager

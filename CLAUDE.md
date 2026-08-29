@@ -38,7 +38,7 @@ This file gives Claude (or any contributor) the context needed to work on this c
 
 ## 3. Architecture Principles
 
-1. **Package by feature (provider), not by layer.** Each provider lives entirely under `app/modules/<provider>/`: its own auth flow + token table, its own HTTP client, and one subfolder per resource (`contacts/`, `leads/`, `customers/`, `orders/`) holding that resource's `models.py` (local DB table), `schemas.py` (request/response), `service.py` (business logic + provider call + local persistence), and `api.py` (FastAPI router). Nothing crosses from `modules/zoho/` into `modules/shopify/` or vice versa.
+1. **Package by feature (provider), not by layer.** Each provider lives entirely under `app/modules/<provider>/`: its own auth flow + token table, its own HTTP client, and one subfolder per resource (`contacts/`, `leads/`, `customers/`, `orders/`) holding that resource's `models.py` (local DB table), `schemas.py` (request/response), `service.py` (business logic + provider call + local persistence), and `router.py` (FastAPI router). Nothing crosses from `modules/zoho/` into `modules/shopify/` or vice versa.
 2. **`core/` and `db/` hold only generic, non-provider infrastructure.** `core/` = config, logging, the shared pooled HTTP client, typed exceptions, and the generic response-envelope/pagination schemas. `db/` = the SQLAlchemy engine and session factory only — no table definitions live here; every table is owned by the module that uses it.
 3. **No provider-specific logic leaks into `core/` or `db/`.** Adding a new provider should only mean creating `app/modules/<provider>/` and registering its routers in `main.py`.
 4. **Consistent response envelope** across every provider: `{ "success": bool, "data": ..., "error": {...} }` (defined once, in `core/schemas.py`).
@@ -71,19 +71,19 @@ This version intentionally uses fewer GoF patterns than a classic layered design
 
 | Pattern | Category | Where it's used | Why |
 |---|---|---|---|
-| **[Facade](https://refactoring.guru/design-patterns/facade)** | Structural | Every resource's `service.py` (e.g. `modules/zoho/contacts/service.py`) | The router (`api.py`) talks to one simple function (e.g. `service.create_contact(data)`), which internally coordinates the provider call, JSON mapping, and local DB persistence — hiding that complexity from `api.py`. |
+| **[Facade](https://refactoring.guru/design-patterns/facade)** | Structural | Every resource's `service.py` (e.g. `modules/zoho/contacts/service.py`) | The router (`router.py`) talks to one simple function (e.g. `service.create_contact(data)`), which internally coordinates the provider call, JSON mapping, and local DB persistence — hiding that complexity from `router.py`. |
 | **[Adapter](https://refactoring.guru/design-patterns/adapter)** | Structural | Inside each resource's `service.py` (e.g. `_from_zoho_record`, `_to_zoho_payload`) | Zoho and Shopify return wildly different JSON shapes. Each service maps its provider's raw response to/from that module's own `schemas.py` types — inline now, since there's no cross-provider DTO to adapt into. |
 | **[Singleton](https://refactoring.guru/design-patterns/singleton)** *(lightweight, via DI)* | Creational | `core/http_client.py` shared async client, DB session factory | One shared, connection-pooled HTTP client and DB session per app lifecycle instead of creating new ones per request. This is generic infrastructure, not provider-specific, so it stays in `core/`. |
 
 **Deliberately dropped** (present in earlier iterations, removed in favor of standalone modules):
 - **Strategy** (`BaseCRMProvider`/`BaseCommerceProvider`) — there is no shared provider interface anymore. Each module's `client.py` and `service.py` have their own shapes.
-- **Factory Method** (`ProviderFactory`) — nothing looks up "a CRM provider by name" anymore; `api.py` imports its own module's `service.py` directly.
+- **Factory Method** (`ProviderFactory`) — nothing looks up "a CRM provider by name" anymore; `router.py` imports its own module's `service.py` directly.
 - **Template Method** (shared `authenticated_request()`) — each provider's `client.py` implements its own get-token/refresh/retry-once flow. This is genuinely duplicated between `modules/zoho/client.py` and `modules/shopify/client.py` — an accepted tradeoff for module isolation, not an oversight.
 
 ### How this achieves "easy to add a new provider"
 
 To add, say, HubSpot, a contributor should only need to:
-1. Create `app/modules/hubspot/` with the same internal shape as `modules/zoho/`: `auth/` (own token table + OAuth logic), `client.py` (own request/retry logic), and one subfolder per resource with `models.py`/`schemas.py`/`service.py`/`api.py`.
+1. Create `app/modules/hubspot/` with the same internal shape as `modules/zoho/`: `auth/` (own token table + OAuth logic), `client.py` (own request/retry logic), and one subfolder per resource with `models.py`/`schemas.py`/`service.py`/`router.py`.
 2. Register its routers in `app/main.py` (`app.include_router(...)`).
 
 **Nothing in `core/`, `db/`, or the Zoho/Shopify modules should need to change.** There is currently no third provider module in the codebase to demonstrate this live — an earlier in-memory `demo` module that proved it out was removed. The claim rests on `modules/zoho/` and `modules/shopify/` already being structurally independent of each other, not on shared code either of them would need to be pulled out of.
@@ -111,13 +111,13 @@ bridgelayer/
 │   │   │   ├── auth/
 │   │   │   │   ├── models.py      # ZohoToken (own table)
 │   │   │   │   ├── service.py     # OAuth code exchange + refresh
-│   │   │   │   └── api.py         # /zoho/auth/*
+│   │   │   │   └── router.py      # /zoho/auth/*
 │   │   │   ├── client.py          # Zoho's own authenticated_request + retry/refresh
 │   │   │   ├── contacts/
 │   │   │   │   ├── models.py      # ZohoContact (local mirror table)
 │   │   │   │   ├── schemas.py     # ContactRequest/ContactResponse/ContactListResponse
 │   │   │   │   ├── service.py     # Facade: call Zoho, map JSON, save locally
-│   │   │   │   └── api.py         # /zoho/contacts router
+│   │   │   │   └── router.py      # /zoho/contacts router
 │   │   │   └── leads/             # same shape as contacts/
 │   │   └── shopify/
 │   │       ├── auth/              # same shape as zoho/auth/, own ShopifyToken table
@@ -183,5 +183,5 @@ bridgelayer/
 - Every provider method should raise typed exceptions (`ProviderAuthError`, `ProviderAPIError`, `ProviderTimeoutError`, all from `core/exceptions.py`) caught centrally and mapped to HTTP responses — don't let raw provider exceptions bubble to the API layer.
 - Write each module's `client.py` so it's testable without live API calls (respx-mock at the transport level via the shared `core/http_client.py`).
 - Keep provider modules fully independent — no shared provider-specific code between `modules/zoho/` and `modules/shopify/`, only shared *generic* utilities from `core/` (HTTP client, exceptions, envelope/pagination schemas).
-- **Every create/update/delete a resource's `service.py` sends to its provider must also be mirrored into that resource's own local table** (upsert on create/update, soft-delete via `is_deleted` on delete; for read-only resources like Shopify Orders, mirror on every `list`/`get` instead since that's the only touchpoint). This is what makes "persists tokens and integration data locally" (Section 1) true, not aspirational. Do this directly with `SessionLocal()` inside `service.py` — there is no shared persistence helper to call; a new provider's resource gets the same guarantee by following the same `models.py`/`schemas.py`/`service.py`/`api.py` shape, not by importing something generic.
+- **Every create/update/delete a resource's `service.py` sends to its provider must also be mirrored into that resource's own local table** (upsert on create/update, soft-delete via `is_deleted` on delete; for read-only resources like Shopify Orders, mirror on every `list`/`get` instead since that's the only touchpoint). This is what makes "persists tokens and integration data locally" (Section 1) true, not aspirational. Do this directly with `SessionLocal()` inside `service.py` — there is no shared persistence helper to call; a new provider's resource gets the same guarantee by following the same `models.py`/`schemas.py`/`service.py`/`router.py` shape, not by importing something generic.
 - When in doubt about scope, remember: this demonstrates *pattern*, not full platform coverage — don't over-build beyond the listed endpoints unless going for bonus points.

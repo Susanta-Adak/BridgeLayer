@@ -44,12 +44,12 @@ app/
     ├── zoho/
     │   ├── auth/           OAuth2 code exchange + refresh (own ZohoToken table)
     │   ├── client.py        Zoho's own authenticated-request/retry flow
-    │   ├── contacts/        models.py + schemas.py + service.py + api.py
+    │   ├── contacts/        models.py + schemas.py + service.py + router.py
     │   └── leads/            (same shape)
     └── shopify/
         ├── auth/            OAuth2 (+ static-token fallback), own ShopifyToken table
         ├── client.py
-        ├── customers/        models.py + schemas.py + service.py + api.py
+        ├── customers/        models.py + schemas.py + service.py + router.py
         ├── orders/            (same shape; read-only, mirrored on read)
         └── webhooks.py       Shopify webhook receiver
 ```
@@ -194,7 +194,7 @@ to/from its own `schemas.py`, and upserts/soft-deletes its own
 `models.py` table directly via SQLAlchemy. There's no shared
 persistence helper — a new provider's resource gets the same
 guarantee by following the same four-file shape
-(`models.py`/`schemas.py`/`service.py`/`api.py`), not by importing
+(`models.py`/`schemas.py`/`service.py`/`router.py`), not by importing
 something generic.
 
 Reads (`get_*`, `list_*`, aside from Orders above) still hit the
