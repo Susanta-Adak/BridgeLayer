@@ -26,8 +26,6 @@ def init_db() -> None:
     # Base.metadata before create_all. Each provider module owns its
     # own tables (auth token + one per resource) - add the import
     # here whenever a new module gains a models.py.
-    import app.modules.demo.contacts.models  # noqa: F401
-    import app.modules.demo.leads.models  # noqa: F401
     import app.modules.shopify.auth.models  # noqa: F401
     import app.modules.shopify.customers.models  # noqa: F401
     import app.modules.shopify.orders.models  # noqa: F401

@@ -4,9 +4,7 @@ Unified integration layer connecting **Zoho CRM** and **Shopify**
 through a single, consistent API — organized as one self-contained
 module per provider (and one submodule per resource inside it) so a
 third provider (HubSpot, WooCommerce, ...) can be added by copying
-that folder shape, without touching Zoho/Shopify code. A stub `demo`
-provider ships alongside Zoho/Shopify as a live proof of that claim
-(see [Extensibility](#extensibility-the-demo-module)).
+that folder shape, without touching Zoho/Shopify code.
 
 Every response, regardless of endpoint or outcome, uses the same
 envelope:
@@ -29,7 +27,6 @@ envelope:
 - [Database schema](#database-schema)
 - [Local persistence](#local-persistence)
 - [API usage](#api-usage)
-- [Extensibility: the demo module](#extensibility-the-demo-module)
 - [Running tests](#running-tests)
 - [Docker](#docker)
 - [Design decisions & known limitations](#design-decisions--known-limitations)
@@ -49,15 +46,12 @@ app/
     │   ├── client.py        Zoho's own authenticated-request/retry flow
     │   ├── contacts/        models.py + schemas.py + service.py + api.py
     │   └── leads/            (same shape)
-    ├── shopify/
-    │   ├── auth/            OAuth2 (+ static-token fallback), own ShopifyToken table
-    │   ├── client.py
-    │   ├── customers/        models.py + schemas.py + service.py + api.py
-    │   ├── orders/            (same shape; read-only, mirrored on read)
-    │   └── webhooks.py       Shopify webhook receiver
-    └── demo/
-        ├── contacts/          in-memory stub CRM proving extensibility
-        └── leads/
+    └── shopify/
+        ├── auth/            OAuth2 (+ static-token fallback), own ShopifyToken table
+        ├── client.py
+        ├── customers/        models.py + schemas.py + service.py + api.py
+        ├── orders/            (same shape; read-only, mirrored on read)
+        └── webhooks.py       Shopify webhook receiver
 ```
 
 Each provider module is **fully self-contained**: its own auth flow
@@ -163,7 +157,6 @@ typed columns (not a JSON blob), so local data is directly queryable.
 | `shopify_tokens` | `modules/shopify/auth/models.py` | single-row OAuth/static token |
 | `shopify_customers` | `modules/shopify/customers/models.py` | `external_id` (Shopify's ID, unique), name/email/phone |
 | `shopify_orders` | `modules/shopify/orders/models.py` | `external_id`, denormalized customer id/email, price/currency/status |
-| `demo_contacts` / `demo_leads` | `modules/demo/*/models.py` | same shape as Zoho's, proving the template replicates for a new provider |
 
 All tables include `created_at`/`updated_at` (UTC). Tables are
 created automatically on startup (`init_db()` in the app lifespan,
@@ -245,33 +238,13 @@ Errors always carry a typed `error.code` (`not_found`,
 an appropriate HTTP status — raw Zoho/Shopify error payloads never
 reach the caller.
 
-## Extensibility: the demo module
-
-`app/modules/demo/` is a working third provider with an in-memory
-store instead of a real API, laid out exactly like `modules/zoho/`:
-one folder per resource (`contacts/`, `leads/`), each with its own
-`models.py` (local mirror table), `schemas.py`, `service.py`, and
-`api.py`, exposed at `/demo/contacts` and `/demo/leads`. The only
-difference from Zoho/Shopify is that `service.py` reads/writes an
-in-memory dict instead of calling `client.py` — everything else,
-including the local-mirror-on-write behavior, is identical. Nothing
-in `core/`, `db/`, or the Zoho/Shopify modules was touched to add
-it — that's the concrete proof that copying this folder shape is
-the entire integration surface for a new provider.
-
-```bash
-curl -X POST localhost:8000/demo/contacts \
-  -H 'Content-Type: application/json' \
-  -d '{"first_name":"Ada","last_name":"Lovelace","email":"ada@example.com"}'
-```
-
 ## Running tests
 
 ```bash
 pytest
 ```
 
-35 tests cover:
+34 tests cover:
 - the shared HTTP client's retry-with-backoff and rate-limit
   handling
 - Zoho OAuth (code exchange, refresh), fully mocked with `respx` —
@@ -284,7 +257,8 @@ pytest
   including local-mirror upsert on create/update
 - Shopify Orders list/get, including local-mirror upsert on read
 - API-level tests through `TestClient` (envelope shape, validation
-  errors, 404s, full demo contact/lead lifecycle)
+  errors, 404s, a full Zoho contact lifecycle routed through the
+  actual HTTP endpoints)
 
 ## Docker
 

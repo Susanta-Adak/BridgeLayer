@@ -86,7 +86,7 @@ To add, say, HubSpot, a contributor should only need to:
 1. Create `app/modules/hubspot/` with the same internal shape as `modules/zoho/`: `auth/` (own token table + OAuth logic), `client.py` (own request/retry logic), and one subfolder per resource with `models.py`/`schemas.py`/`service.py`/`api.py`.
 2. Register its routers in `app/main.py` (`app.include_router(...)`).
 
-**Nothing in `core/`, `db/`, or the Zoho/Shopify modules should need to change.** `app/modules/demo/` is the concrete, working proof of this: a third provider added by copying the folder shape, with its own in-memory "API" standing in for HTTP calls and its own local-mirror tables (`demo_contacts`, `demo_leads`) — see `README.md`'s Extensibility section.
+**Nothing in `core/`, `db/`, or the Zoho/Shopify modules should need to change.** There is currently no third provider module in the codebase to demonstrate this live — an earlier in-memory `demo` module that proved it out was removed. The claim rests on `modules/zoho/` and `modules/shopify/` already being structurally independent of each other, not on shared code either of them would need to be pulled out of.
 
 ---
 
@@ -119,15 +119,12 @@ bridgelayer/
 │   │   │   │   ├── service.py     # Facade: call Zoho, map JSON, save locally
 │   │   │   │   └── api.py         # /zoho/contacts router
 │   │   │   └── leads/             # same shape as contacts/
-│   │   ├── shopify/
-│   │   │   ├── auth/              # same shape as zoho/auth/, own ShopifyToken table
-│   │   │   ├── client.py
-│   │   │   ├── customers/         # same shape as zoho/contacts/
-│   │   │   ├── orders/            # same shape, read-only (mirrored on read, not write)
-│   │   │   └── webhooks.py        # /webhooks/shopify
-│   │   └── demo/
-│   │       ├── contacts/          # in-memory stub, same 4-file shape (bonus points)
-│   │       └── leads/
+│   │   └── shopify/
+│   │       ├── auth/              # same shape as zoho/auth/, own ShopifyToken table
+│   │       ├── client.py
+│   │       ├── customers/         # same shape as zoho/contacts/
+│   │       ├── orders/            # same shape, read-only (mirrored on read, not write)
+│   │       └── webhooks.py        # /webhooks/shopify
 │   └── tests/
 ├── .env.example
 ├── .gitignore

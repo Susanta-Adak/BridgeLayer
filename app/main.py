@@ -6,8 +6,6 @@ from app.core.exceptions import register_exception_handlers
 from app.core.http_client import close_http_client
 from app.core.logging import configure_logging
 from app.db.database import init_db
-from app.modules.demo.contacts.api import router as demo_contacts_router
-from app.modules.demo.leads.api import router as demo_leads_router
 from app.modules.shopify.auth.api import router as shopify_auth_router
 from app.modules.shopify.customers.api import (
     router as shopify_customers_router,
@@ -31,7 +29,7 @@ app = FastAPI(
     title="BridgeLayer",
     description=(
         "Unified integration layer connecting Zoho CRM and Shopify "
-        "through a single, extensible API."
+        "through a single API."
     ),
     version="0.1.0",
     lifespan=lifespan,
@@ -46,8 +44,6 @@ app.include_router(shopify_auth_router)
 app.include_router(shopify_customers_router)
 app.include_router(shopify_orders_router)
 app.include_router(shopify_webhooks_router)
-app.include_router(demo_contacts_router)
-app.include_router(demo_leads_router)
 
 
 @app.get("/health", tags=["health"])
