@@ -1,5 +1,4 @@
 from fastapi import APIRouter
-from fastapi.responses import RedirectResponse
 
 from app.core.deps import envelope
 from app.core.schemas import AuthUrlResponse
@@ -12,12 +11,6 @@ router = APIRouter(prefix="/zoho/auth", tags=["zoho"])
 async def authorize():
     url = service.build_authorization_url()
     return envelope(AuthUrlResponse(authorization_url=url))
-
-
-@router.get("/authorize/redirect")
-async def authorize_redirect():
-    """Convenience endpoint: redirect the browser straight to Zoho."""
-    return RedirectResponse(service.build_authorization_url())
 
 
 @router.get("/callback")

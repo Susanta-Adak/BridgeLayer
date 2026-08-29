@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     zoho_client_id: str = ""
     zoho_client_secret: str = ""
     zoho_redirect_uri: str = ""
-    zoho_accounts_base_url: str = "https://accounts.zoho.com"
-    zoho_api_base_url: str = "https://www.zohoapis.com"
+    zoho_accounts_base_url: str = "https://accounts.zoho.in"
+    zoho_api_base_url: str = "https://www.zohoapis.in"
 
     shopify_shop_domain: str = ""
     shopify_access_token: str = ""

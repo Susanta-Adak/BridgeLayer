@@ -105,8 +105,7 @@ Zoho contacts/leads require a one-time authorization before any
 CRM call will work:
 
 1. `GET /zoho/auth/authorize` → returns `{ authorization_url }`.
-   Open it in a browser (or hit `GET /zoho/auth/authorize/redirect`
-   to be redirected straight there).
+   Open it in a browser.
 2. Approve access. Zoho redirects to `ZOHO_REDIRECT_URI` with a
    `code` query param.
 3. That redirect must land on `GET /zoho/auth/callback?code=...`,
@@ -125,7 +124,7 @@ actually came from Shopify:
 
 1. `GET /shopify/auth/authorize` → returns `{ authorization_url }`
    (also generates and remembers a one-time `state` nonce). Open it
-   in a browser (or hit `GET /shopify/auth/authorize/redirect`).
+   in a browser.
 2. Approve access. Shopify redirects to `SHOPIFY_REDIRECT_URI` with
    `shop`, `code`, `state`, `timestamp`, and `hmac` query params.
 3. That redirect must land on `GET /shopify/auth/callback`, which:
