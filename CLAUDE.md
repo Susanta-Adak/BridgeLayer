@@ -1,8 +1,38 @@
-# CLAUDE.md — BridgeLayer
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > Unified integration layer connecting Zoho CRM and Shopify through a single API — organized as one fully self-contained module per provider so adding a third provider tomorrow means copying that module's folder shape, not editing shared code.
 
-This file gives Claude (or any contributor) the context needed to work on this codebase effectively.
+---
+
+## Commands
+
+```bash
+# Setup
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env          # then fill in credentials
+
+# Run the dev server (http://localhost:8000, docs at /docs)
+uvicorn app.main:app --reload
+
+# Run the full test suite (no live API calls - Zoho/Shopify HTTP
+# calls are respx-mocked; a temp SQLite DB is created per test run)
+pytest
+
+# Run a single test file
+pytest app/tests/test_zoho_contacts.py
+
+# Run a single test by name
+pytest app/tests/test_zoho_contacts.py::test_create_contact_creates_then_mirrors_locally
+
+# Run via Docker (persists the SQLite file in a named volume)
+docker compose up --build
+```
+
+There is no configured linter/formatter (no ruff/black/flake8 config in this repo) — follow the "Core Style Rules" below by hand.
 
 ---
 
