@@ -1,9 +1,12 @@
 """Facade over the Shopify provider."""
 
+from app.db import repository
 from app.providers.factory import ProviderFactory
 from app.providers.schemas import Customer, CustomerInput, Order, Page
 from app.providers.shopify import auth as shopify_auth
 from app.providers.shopify.client import ShopifyCommerceProvider
+
+_PROVIDER = "shopify"
 
 
 def _provider() -> ShopifyCommerceProvider:
@@ -26,7 +29,11 @@ async def handle_oauth_callback(*, params: dict, hmac_signature: str) -> None:
 
 
 async def create_customer(data: CustomerInput) -> Customer:
-    return await _provider().create_customer(data)
+    customer = await _provider().create_customer(data)
+    repository.upsert_record(
+        _PROVIDER, "customer", customer.id, customer.model_dump()
+    )
+    return customer
 
 
 async def get_customer(customer_id: str) -> Customer:
@@ -38,7 +45,11 @@ async def list_customers(page: int, per_page: int) -> Page:
 
 
 async def update_customer(customer_id: str, data: CustomerInput) -> Customer:
-    return await _provider().update_customer(customer_id, data)
+    customer = await _provider().update_customer(customer_id, data)
+    repository.upsert_record(
+        _PROVIDER, "customer", customer.id, customer.model_dump()
+    )
+    return customer
 
 
 async def list_orders(page: int, per_page: int) -> Page:

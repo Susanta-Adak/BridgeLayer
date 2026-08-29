@@ -106,7 +106,8 @@ bridgelayer/
 │   │   └── exceptions.py
 │   ├── db/
 │   │   ├── database.py
-│   │   ├── models.py          # Token, ContactCache, etc.
+│   │   ├── models.py          # Token, IntegrationRecord
+│   │   ├── repository.py      # generic local-mirror CRUD, keyed by (provider, resource_type, external_id)
 │   │   └── session.py
 │   ├── providers/
 │   │   ├── base.py            # BaseCRMProvider / BaseCommerceProvider (Strategy + Template Method)
@@ -187,4 +188,5 @@ bridgelayer/
 - Every provider method should raise typed exceptions (`ProviderAuthError`, `ProviderAPIError`, `ProviderTimeoutError`) caught centrally and mapped to HTTP responses — don't let raw provider exceptions bubble to the API layer.
 - Write provider clients so they're testable without live API calls (inject the HTTP client, mock at the transport level).
 - Keep Zoho and Shopify code fully independent — no shared provider-specific code, only shared *generic* utilities (HTTP client, retry logic, base interfaces, Template Method skeleton).
+- Every create/update/delete a service Facade sends to a provider must also be mirrored locally via `app/db/repository.py` (`upsert_record` on create/update, `mark_deleted` on delete) — this is what makes "persists tokens and integration data locally" (Section 1) true, not aspirational. A new provider's service gets this for free by calling the same three generic functions; never add a provider-specific table or bypass `repository.py`.
 - When in doubt about scope, remember: this demonstrates *pattern*, not full platform coverage — don't over-build beyond the listed endpoints unless going for bonus points.

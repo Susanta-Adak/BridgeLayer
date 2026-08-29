@@ -25,6 +25,7 @@ envelope:
 - [Zoho OAuth flow](#zoho-oauth-flow)
 - [Shopify OAuth flow](#shopify-oauth-flow)
 - [Database schema](#database-schema)
+- [Local persistence](#local-persistence)
 - [API usage](#api-usage)
 - [Extensibility: the demo provider](#extensibility-the-demo-provider)
 - [Running tests](#running-tests)
@@ -132,7 +133,9 @@ private app token) so existing non-OAuth setups keep working.
 
 ## Database schema
 
-Single table, `tokens`:
+Two tables.
+
+`tokens` — one row per provider's OAuth/API credentials:
 
 | Column | Type | Notes |
 |---|---|---|
@@ -143,8 +146,53 @@ Single table, `tokens`:
 | `expires_at` | datetime, nullable | UTC |
 | `created_at` / `updated_at` | datetime | UTC |
 
+`integration_records` — BridgeLayer's own durable copy of every
+record it pushes to a provider (see
+[Local persistence](#local-persistence) below):
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | int, PK | |
+| `provider` | string | e.g. `"zoho"`, `"shopify"` |
+| `resource_type` | string | e.g. `"contact"`, `"lead"`, `"customer"` |
+| `external_id` | string | the provider's own ID for the record |
+| `data` | JSON | last-known snapshot of the unified DTO |
+| `is_deleted` | bool | soft-delete flag, see below |
+| `created_at` / `updated_at` | datetime | UTC |
+
+`(provider, resource_type, external_id)` is unique.
+
 Tables are created automatically on startup (`init_db()` in the
 app lifespan) — no manual migration step for this scope.
+
+## Local persistence
+
+Every create/update/delete a service sends to Zoho or Shopify is
+also mirrored into `integration_records`, so BridgeLayer keeps its
+own durable copy of what it sent instead of only trusting the third
+party's copy of it:
+
+- **Create** (`create_contact`, `create_lead`, `create_customer`)
+  upserts the returned DTO locally, keyed by the provider's ID.
+- **Update** (`update_contact`, `update_customer`) overwrites the
+  local snapshot with the latest DTO.
+- **Delete** (`delete_contact`) soft-deletes the local row
+  (`is_deleted = true`) rather than removing it, so there's still a
+  local record of what used to exist even after Zoho no longer has
+  it.
+
+This lives in the service Facades (`app/services/*_service.py`),
+which call three generic functions in `app/db/repository.py` —
+`upsert_record` / `mark_deleted` / `get_record` — that key off
+`(provider, resource_type, external_id)` and don't know anything
+about Zoho or Shopify shapes. A future provider's service gets the
+same mirroring for free by calling the same three functions; no
+change to `repository.py` or the schema is needed.
+
+Reads (`get_*`, `list_*`) still hit the provider directly — the
+provider stays the source of truth for reads, and the local mirror
+exists to guarantee nothing BridgeLayer *wrote* is ever silently
+lost, not to serve as a read cache.
 
 ## API usage
 
@@ -204,7 +252,7 @@ curl -X POST localhost:8000/demo/contacts \
 pytest
 ```
 
-40 tests cover:
+47 tests cover:
 - the Template Method's 401-refresh-retry behavior, in isolation
   from any real provider
 - the shared HTTP client's retry-with-backoff and rate-limit
@@ -218,6 +266,9 @@ pytest
 - `ProviderFactory` registration and unknown-provider errors
 - API-level tests through `TestClient` (envelope shape, validation
   errors, 404s, full contact/lead lifecycle)
+- local-mirror persistence: create/update upsert into
+  `integration_records`, delete soft-deletes it, exercised through
+  the Zoho and Shopify service Facades
 
 ## Docker
 
