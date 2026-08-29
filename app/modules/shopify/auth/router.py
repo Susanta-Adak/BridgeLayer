@@ -5,7 +5,7 @@ from app.core.exceptions import ValidationError
 from app.core.schemas import AuthUrlResponse
 from app.modules.shopify.auth import service
 
-router = APIRouter(prefix="/shopify/auth", tags=["shopify"])
+router = APIRouter(prefix="/shopify/auth", tags=["Shopify"])
 
 
 @router.get("/authorize")

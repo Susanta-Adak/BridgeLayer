@@ -1,19 +1,9 @@
 # BridgeLayer
 
-Unified integration layer connecting **Zoho CRM** and **Shopify**
-through a single, consistent API. Each provider is a self-contained
-module (own auth, own HTTP client, one folder per resource) — adding
-a third provider means copying that shape, not editing existing code.
+Unified integration layer connecting **Zoho CRM** and **Shopify** through a single, consistent API.
 
-Every response uses the same envelope:
+BridgeLayer provides a clean abstraction over both third-party platforms while keeping each integration independent. Each provider has its own authentication, HTTP client, and resource modules. Adding a new provider should require adding a new integration module rather than modifying existing provider implementations.
 
-```json
-{ "success": true, "data": { ... }, "error": null }
-```
-
-```json
-{ "success": false, "data": null, "error": { "code": "not_found", "message": "...", "details": {} } }
-```
 
 ## Contents
 
@@ -29,9 +19,49 @@ Every response uses the same envelope:
 - [Docker](#docker)
 - [Design decisions & known limitations](#design-decisions--known-limitations)
 
+
 ## Architecture
 
+BridgeLayer follows a provider-based architecture:
+
+```text
+                    ┌─────────────────────┐
+                    │      Client         │
+                    │   Postman / App     │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │     FastAPI API     │
+                    └──────────┬──────────┘
+                               │
+                 ┌─────────────┴─────────────┐
+                 ▼                           ▼
+        ┌─────────────────┐         ┌─────────────────┐
+        │   Zoho Module   │         │ Shopify Module  │
+        │                 │         │                 │
+        │ Auth            │         │ Auth            │
+        │ HTTP Client     │         │ HTTP Client     │
+        │ Contacts        │         │ Customers       │
+        │ Leads           │         │ Orders          │
+        └────────┬────────┘         └────────┬────────┘
+                 │                           │
+                 ▼                           ▼
+          ┌─────────────┐             ┌─────────────┐
+          │  Zoho CRM   │             │   Shopify   │
+          └─────────────┘             └─────────────┘
+
+
+                    ┌─────────────────────┐
+                    │     Local DB        │
+                    │                     │
+                    │ OAuth Tokens        │
+                    │ Token Expiry        │
+                    │ Integration State   │
+                    └─────────────────────┘
 ```
+
+```text
 app/
 ├── main.py            FastAPI app, lifespan, mounts api/v1 + unversioned /health
 ├── api/v1/router.py    composition root: mounts every module's router under /api/v1
@@ -168,7 +198,17 @@ into every write path.
 
 ## API usage
 
-All endpoints return the envelope shown above. Examples:
+Every response, success or error, uses the same envelope:
+
+```json
+{ "success": true, "data": { ... }, "error": null }
+```
+
+```json
+{ "success": false, "data": null, "error": { "code": "not_found", "message": "...", "details": {} } }
+```
+
+Examples:
 
 ```bash
 # Zoho contacts

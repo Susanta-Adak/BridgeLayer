@@ -32,6 +32,6 @@ register_exception_handlers(app)
 app.include_router(api_v1_router)
 
 
-@app.get("/health", tags=["health"])
+@app.get("/health", tags=["Health"])
 async def health():
     return {"success": True, "data": {"status": "ok"}, "error": None}

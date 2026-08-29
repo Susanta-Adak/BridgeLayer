@@ -4,7 +4,7 @@ from app.core.deps import envelope
 from app.core.schemas import AuthUrlResponse
 from app.modules.zoho.auth import service
 
-router = APIRouter(prefix="/zoho/auth", tags=["zoho"])
+router = APIRouter(prefix="/zoho/auth", tags=["Zoho CRM"])
 
 
 @router.get("/authorize")

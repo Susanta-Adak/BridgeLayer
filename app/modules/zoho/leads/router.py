@@ -4,7 +4,7 @@ from app.core.deps import envelope
 from app.modules.zoho.leads import service
 from app.modules.zoho.leads.schemas import LeadRequest
 
-router = APIRouter(prefix="/zoho/leads", tags=["zoho"])
+router = APIRouter(prefix="/zoho/leads", tags=["Zoho CRM"])
 
 
 @router.post("", status_code=201)

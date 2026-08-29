@@ -4,7 +4,7 @@ from app.core.deps import envelope
 from app.modules.shopify.customers import service
 from app.modules.shopify.customers.schemas import CustomerRequest
 
-router = APIRouter(prefix="/shopify/customers", tags=["shopify"])
+router = APIRouter(prefix="/shopify/customers", tags=["Shopify"])
 
 
 @router.post("", status_code=201)
