@@ -36,9 +36,12 @@ envelope:
 ```
 app/
 ├── main.py               FastAPI app, lifespan, exception handlers;
-│                           mounts api_v1.router + the unversioned /health
-├── api_v1.py              composition root: mounts every module's router
-│                           under /api/v1 (see "API versioning" below)
+│                           mounts api/v1 + the unversioned /health
+├── api/
+│   └── v1/
+│       └── router.py      composition root: mounts every module's router
+│                           under /api/v1 (see "API versioning" below).
+│                           A future v2 is a sibling api/v2/ package.
 ├── core/                  config, logging, shared HTTP client, generic
 │                           schemas (envelope/pagination), exceptions
 ├── db/                    SQLAlchemy engine + session factory - stores
@@ -65,7 +68,7 @@ shared between `zoho/` and `shopify/` beyond generic, non-provider
 infrastructure in `core/` (settings, the pooled HTTP client, typed
 exceptions, the response envelope). Adding a new provider means
 copying this folder shape into `modules/<provider>/` and registering
-its routers in `main.py` — no other file changes.
+its routers in `app/api/v1/router.py` — no other file changes.
 
 Resource folders (`contacts/`, `leads/`, `customers/`, `orders/`)
 deliberately have **no `models.py`** — Zoho and Shopify are the
@@ -77,12 +80,23 @@ table for. Only `auth/` has a `models.py`, for the OAuth token. See
 
 Every business/auth endpoint is mounted under `/api/v1` (e.g.
 `/api/v1/zoho/contacts`, `/api/v1/shopify/auth/authorize`). This
-lives in one place, `app/api_v1.py`, which imports each module's
-`router` unchanged and mounts it under an `APIRouter(prefix="/api/v1")`
-— no module's own `router.py` knows or cares that it's versioned.
-Adding a `v2` later means adding a sibling `app/api_v2.py` that
-composes whichever routers changed (old ones can still be reused
-unchanged) and mounting both in `main.py`.
+lives in one place, `app/api/v1/router.py`, which imports each
+module's `router` unchanged and mounts it under an
+`APIRouter(prefix="/api/v1")` — no module's own `router.py` knows or
+cares that it's versioned. `app/api/` is a package for exactly this
+reason: adding v2 later means adding a sibling `app/api/v2/router.py`
+that composes whichever module routers changed (old ones can still
+be reused unchanged, unmodified) and mounting both in `main.py` —
+`v1/` itself is never touched.
+
+If a specific resource's contract diverges in v2 (e.g. renamed
+response fields), its v2-only `schemas.py`/`router.py` live in a
+`v2/` subfolder inside that resource's own folder (e.g.
+`modules/zoho/contacts/v2/`) — its `service.py`/`client.py`/`auth/`
+stay shared and unversioned. See `CLAUDE.md` Section 9 for the full
+convention and a worked example. None of this exists yet — it's
+documented so the "where do I put it" question has one answer when
+it's actually needed.
 
 `GET /health` is intentionally **not** versioned — it's an
 infra-level liveness check for load balancers/orchestrators, not a

@@ -4,8 +4,9 @@ Mounts every module's router under a single `/api/v1` prefix. Each
 module's own router.py keeps its relative prefix (e.g.
 `/zoho/contacts`) unchanged and stays independently testable/
 importable - this file only adds the version prefix on top, so
-introducing a v2 later means adding a sibling `api_v2.py` that
-composes a different set of routers, not touching any module.
+introducing v2 later means adding a sibling `app/api/v2/router.py`
+that composes a different set of routers, not touching any module
+or this file.
 
 `/health` is intentionally NOT versioned (see main.py) - it's an
 infra-level liveness check, not a business-data endpoint, and load

@@ -70,7 +70,7 @@ There is no configured linter/formatter (no ruff/black/flake8 config in this rep
 
 1. **Package by feature (provider), not by layer.** Each provider lives entirely under `app/modules/<provider>/`: its own auth flow + token table, its own HTTP client, and one subfolder per resource (`contacts/`, `leads/`, `customers/`, `orders/`) holding that resource's `schemas.py` (request/response), `service.py` (business logic + provider call), and `router.py` (FastAPI router). Nothing crosses from `modules/zoho/` into `modules/shopify/` or vice versa.
 2. **`core/` and `db/` hold only generic, non-provider infrastructure.** `core/` = config, logging, the shared pooled HTTP client, typed exceptions, and the generic response-envelope/pagination schemas. `db/` = the SQLAlchemy engine and session factory only — no table definitions live here; only each provider's `auth/models.py` owns a table.
-3. **No provider-specific logic leaks into `core/` or `db/`.** Adding a new provider should only mean creating `app/modules/<provider>/` and registering its routers in `main.py`.
+3. **No provider-specific logic leaks into `core/` or `db/`.** Adding a new provider should only mean creating `app/modules/<provider>/` and registering its routers in `app/api/v1/router.py`.
 4. **Consistent response envelope** across every provider: `{ "success": bool, "data": ..., "error": {...} }` (defined once, in `core/schemas.py`).
 5. **Tokens are never returned in API responses or logged.**
 6. **Zoho and Shopify are the source of truth.** Resource `service.py` files (`contacts/`, `leads/`, `customers/`, `orders/`) never touch the local DB — they call the provider and return its response, mapped. Only `auth/service.py` reads/writes the database (the OAuth token), keeping authentication cleanly separate from business logic — see Section 9.
@@ -114,7 +114,7 @@ This version intentionally uses fewer GoF patterns than a classic layered design
 
 To add, say, HubSpot, a contributor should only need to:
 1. Create `app/modules/hubspot/` with the same internal shape as `modules/zoho/`: `auth/` (own token table + OAuth logic), `client.py` (own request/retry logic), and one subfolder per resource with `schemas.py`/`service.py`/`router.py` (no `models.py` — HubSpot stays the source of truth for its own data, same as Zoho/Shopify).
-2. Register its routers in `app/api_v1.py` (`router.include_router(...)`) — see "API versioning" below.
+2. Register its routers in `app/api/v1/router.py` (`router.include_router(...)`) — see "API versioning" below.
 
 **Nothing in `core/`, `db/`, or the Zoho/Shopify modules should need to change.** There is currently no third provider module in the codebase to demonstrate this live — an earlier in-memory `demo` module that proved it out was removed. The claim rests on `modules/zoho/` and `modules/shopify/` already being structurally independent of each other, not on shared code either of them would need to be pulled out of.
 
@@ -125,8 +125,12 @@ To add, say, HubSpot, a contributor should only need to:
 ```
 bridgelayer/
 ├── app/
-│   ├── main.py                    # FastAPI app, lifespan; mounts api_v1.router + unversioned /health
-│   ├── api_v1.py                  # composition root: mounts every module's router under /api/v1
+│   ├── main.py                    # FastAPI app, lifespan; mounts api/v1 + unversioned /health
+│   ├── api/
+│   │   └── v1/
+│   │       └── router.py          # composition root: mounts every module's router under /api/v1
+│   │                               # (a future api/v2/router.py would be a sibling package, not
+│   │                               #  a rewrite of this one - see "API versioning" below)
 │   ├── core/
 │   │   ├── config.py              # env/.env settings
 │   │   ├── logging.py
@@ -164,10 +168,10 @@ bridgelayer/
 
 Every route comment above (`/zoho/auth/*`, `/zoho/contacts`,
 `/webhooks/shopify`, ...) is the router's own **relative** prefix -
-`api_v1.py` mounts all of them under `/api/v1`, so the real path is
-e.g. `/api/v1/zoho/contacts`. `GET /health` (in `main.py`, not a
-module) is the one endpoint that stays unversioned. See the
-README's "API versioning" section for the full rationale.
+`app/api/v1/router.py` mounts all of them under `/api/v1`, so the
+real path is e.g. `/api/v1/zoho/contacts`. `GET /health` (in
+`main.py`, not a module) is the one endpoint that stays unversioned.
+See the README's "API versioning" section for the full rationale.
 
 ---
 
@@ -222,5 +226,6 @@ README's "API versioning" section for the full rationale.
 - Keep provider modules fully independent — no shared provider-specific code between `modules/zoho/` and `modules/shopify/`, only shared *generic* utilities from `core/` (HTTP client, exceptions, envelope/pagination schemas).
 - **Never add a `models.py` to a resource folder (`contacts/`, `leads/`, `customers/`, `orders/`).** Zoho and Shopify are the source of truth for that data — `service.py` calls the provider and returns its response, mapped, and nothing more. If a future requirement genuinely needs local caching, that's a deliberate decision to revisit (and re-document in the README), not a default to reach for per-resource.
 - **The database is for OAuth tokens only.** Only `auth/models.py` and `auth/service.py` (per provider) may import `app.db`/use `SessionLocal`. This is what keeps authentication cleanly separate from business logic — a resource's `service.py` should never need a DB session for anything.
-- **Module routers stay unversioned; `app/api_v1.py` is the only place that adds `/api/v1`.** A resource's `router.py` should keep its relative prefix (e.g. `/zoho/contacts`, never `/api/v1/zoho/contacts`) so it stays mountable under any future version. New routers get wired into `api_v1.py` (or a future `api_v2.py`), not given their own version prefix.
+- **Module routers stay unversioned; `app/api/v1/router.py` is the only place that adds `/api/v1`.** A resource's `router.py` should keep its relative prefix (e.g. `/zoho/contacts`, never `/api/v1/zoho/contacts`) so it stays mountable under any future version. New routers get wired into `app/api/v1/router.py`, not given their own version prefix. `app/api/` is a package precisely so a future `app/api/v2/router.py` can exist as a sibling package next to `v1/` without touching it — do not create `app/api/v2/` until a real v2 requirement exists.
+- **When a specific resource's contract genuinely diverges in a future version** (e.g. v2 renames/adds response fields, changes pagination shape), don't touch that resource's existing `schemas.py`/`router.py`, and don't fork the whole module. Add a `v2/` subfolder inside that one resource's folder (e.g. `modules/zoho/contacts/v2/`) holding only `schemas.py` + `router.py`. `service.py` (and `client.py`/`auth/`) stay at the resource root, shared and untouched — they talk to the provider and know nothing about API versions. `v2/router.py` calls the existing (v1) `service.py` functions for the actual provider call, then adapts the v1 response schema into the v2 one (a `from_v1(...)` classmethod on the v2 model is the natural place for this — same Adapter pattern already used for `_from_zoho_record`). The v2 class can reuse the exact same class name as v1 (e.g. `ContactResponse`) with zero collision, since Python distinguishes them by module path (`...contacts.schemas` vs `...contacts.v2.schemas`), not by name. `app/api/v2/router.py` then imports the v2 router for that one resource and the *unchanged* `router` objects for every other resource — the same `APIRouter` instance can safely be `include_router()`'d into both `api/v1/router.py` and `api/v2/router.py`, since FastAPI's `include_router()` only reads the child router's routes and builds new route objects on the parent; it never mutates the child. Only add a resource's own `v2/service.py` (following `service.py`'s existing shape) in the rare case v2 needs a raw provider field v1's mapping never captured. Do not create any resource-level `v2/` folder until a real v2 requirement exists for that resource.
 - When in doubt about scope, remember: this demonstrates *pattern*, not full platform coverage — don't over-build beyond the listed endpoints unless going for bonus points.
