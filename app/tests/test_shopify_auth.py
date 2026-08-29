@@ -7,7 +7,7 @@ from httpx import Response
 
 from app.core.config import get_settings
 from app.core.exceptions import ProviderAuthError
-from app.providers.shopify import auth as shopify_auth
+from app.modules.shopify.auth import service as shopify_auth
 
 
 def _sign(params: dict) -> str:

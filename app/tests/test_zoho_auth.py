@@ -4,7 +4,7 @@ from httpx import Response
 
 from app.core.config import get_settings
 from app.core.exceptions import ProviderAuthError
-from app.providers.zoho import auth as zoho_auth
+from app.modules.zoho.auth import service as zoho_auth
 
 
 @respx.mock
