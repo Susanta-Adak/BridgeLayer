@@ -22,7 +22,15 @@ class Base(DeclarativeBase):
 
 
 def init_db() -> None:
-    # Import models so they're registered on Base.metadata before create_all.
-    from app.db import models  # noqa: F401
+    # Import every module's models so they're registered on
+    # Base.metadata before create_all. Each provider module owns its
+    # own tables (auth token + one per resource) - add the import
+    # here whenever a new module gains a models.py.
+    import app.modules.shopify.auth.models  # noqa: F401
+    import app.modules.shopify.customers.models  # noqa: F401
+    import app.modules.shopify.orders.models  # noqa: F401
+    import app.modules.zoho.auth.models  # noqa: F401
+    import app.modules.zoho.contacts.models  # noqa: F401
+    import app.modules.zoho.leads.models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
