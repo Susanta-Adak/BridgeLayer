@@ -2,21 +2,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api_v1 import router as api_v1_router
 from app.core.exceptions import register_exception_handlers
 from app.core.http_client import close_http_client
 from app.core.logging import configure_logging
 from app.db.database import init_db
-from app.modules.shopify.auth.router import router as shopify_auth_router
-from app.modules.shopify.customers.router import (
-    router as shopify_customers_router,
-)
-from app.modules.shopify.orders.router import (
-    router as shopify_orders_router,
-)
-from app.modules.shopify.webhooks import router as shopify_webhooks_router
-from app.modules.zoho.auth.router import router as zoho_auth_router
-from app.modules.zoho.contacts.router import router as zoho_contacts_router
-from app.modules.zoho.leads.router import router as zoho_leads_router
 
 
 @asynccontextmanager
@@ -39,13 +29,7 @@ app = FastAPI(
 
 register_exception_handlers(app)
 
-app.include_router(zoho_auth_router)
-app.include_router(zoho_contacts_router)
-app.include_router(zoho_leads_router)
-app.include_router(shopify_auth_router)
-app.include_router(shopify_customers_router)
-app.include_router(shopify_orders_router)
-app.include_router(shopify_webhooks_router)
+app.include_router(api_v1_router)
 
 
 @app.get("/health", tags=["health"])

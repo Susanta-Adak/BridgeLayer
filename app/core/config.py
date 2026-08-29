@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     shopify_client_id: str = ""
     shopify_client_secret: str = ""
     shopify_redirect_uri: str = (
-        "http://localhost:8000/shopify/auth/callback"
+        "http://localhost:8000/api/v1/shopify/auth/callback"
     )
     shopify_scopes: str = "read_customers,write_customers,read_orders"
 

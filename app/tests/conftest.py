@@ -12,7 +12,9 @@ _tmp_dir = tempfile.mkdtemp()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_dir}/test.db"
 os.environ["ZOHO_CLIENT_ID"] = "test-client-id"
 os.environ["ZOHO_CLIENT_SECRET"] = "test-client-secret"
-os.environ["ZOHO_REDIRECT_URI"] = "http://localhost:8000/zoho/auth/callback"
+os.environ["ZOHO_REDIRECT_URI"] = (
+    "http://localhost:8000/api/v1/zoho/auth/callback"
+)
 os.environ["ZOHO_ACCOUNTS_BASE_URL"] = "https://accounts.zoho.test"
 os.environ["ZOHO_API_BASE_URL"] = "https://api.zoho.test"
 os.environ["SHOPIFY_SHOP_DOMAIN"] = "test-shop.myshopify.com"
@@ -21,7 +23,7 @@ os.environ["SHOPIFY_API_VERSION"] = "2024-07"
 os.environ["SHOPIFY_CLIENT_ID"] = "test-shopify-client-id"
 os.environ["SHOPIFY_CLIENT_SECRET"] = "test-shopify-client-secret"
 os.environ["SHOPIFY_REDIRECT_URI"] = (
-    "http://localhost:8000/shopify/auth/callback"
+    "http://localhost:8000/api/v1/shopify/auth/callback"
 )
 os.environ["HTTP_BACKOFF_BASE_SECONDS"] = "0.01"
 

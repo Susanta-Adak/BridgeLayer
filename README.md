@@ -35,7 +35,10 @@ envelope:
 
 ```
 app/
-├── main.py               FastAPI app, lifespan, exception handlers, routers
+├── main.py               FastAPI app, lifespan, exception handlers;
+│                           mounts api_v1.router + the unversioned /health
+├── api_v1.py              composition root: mounts every module's router
+│                           under /api/v1 (see "API versioning" below)
 ├── core/                  config, logging, shared HTTP client, generic
 │                           schemas (envelope/pagination), exceptions
 ├── db/                    SQLAlchemy engine + session factory - stores
@@ -70,6 +73,23 @@ source of truth for that data, so there's nothing local to define a
 table for. Only `auth/` has a `models.py`, for the OAuth token. See
 [Local persistence](#local-persistence).
 
+### API versioning
+
+Every business/auth endpoint is mounted under `/api/v1` (e.g.
+`/api/v1/zoho/contacts`, `/api/v1/shopify/auth/authorize`). This
+lives in one place, `app/api_v1.py`, which imports each module's
+`router` unchanged and mounts it under an `APIRouter(prefix="/api/v1")`
+— no module's own `router.py` knows or cares that it's versioned.
+Adding a `v2` later means adding a sibling `app/api_v2.py` that
+composes whichever routers changed (old ones can still be reused
+unchanged) and mounting both in `main.py`.
+
+`GET /health` is intentionally **not** versioned — it's an
+infra-level liveness check for load balancers/orchestrators, not a
+business-data endpoint, so it stays at a stable path regardless of
+API version. `/docs`, `/redoc`, and `/openapi.json` are FastAPI's own
+unversioned, auto-generated routes.
+
 See `CLAUDE.md` in the repo root for the full architecture rationale.
 
 ## Setup
@@ -103,18 +123,18 @@ is hardcoded; `.env` is gitignored.
 | `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` | Preferred: from a Shopify app's Client credentials (Partner Dashboard) |
 | `SHOPIFY_REDIRECT_URI` | Must match the redirect URI registered on the Shopify app |
 | `SHOPIFY_ACCESS_TOKEN` | Fallback: a custom/private app's static Admin API access token, used only if no OAuth token has been stored yet |
-| `SHOPIFY_WEBHOOK_SECRET` | Optional; enables HMAC verification on `/webhooks/shopify` |
+| `SHOPIFY_WEBHOOK_SECRET` | Optional; enables HMAC verification on `/api/v1/webhooks/shopify` |
 
 ## Zoho OAuth flow
 
 Zoho contacts/leads require a one-time authorization before any
 CRM call will work:
 
-1. `GET /zoho/auth/authorize` → returns `{ authorization_url }`.
+1. `GET /api/v1/zoho/auth/authorize` → returns `{ authorization_url }`.
    Open it in a browser.
 2. Approve access. Zoho redirects to `ZOHO_REDIRECT_URI` with a
    `code` query param.
-3. That redirect must land on `GET /zoho/auth/callback?code=...`,
+3. That redirect must land on `GET /api/v1/zoho/auth/callback?code=...`,
    which exchanges the code for an access + refresh token and
    stores them in the `zoho_tokens` table.
 
@@ -128,12 +148,12 @@ Same shape as Zoho's flow, but with two extra checks on the callback
 that Zoho doesn't need — Shopify requires verifying the redirect
 actually came from Shopify:
 
-1. `GET /shopify/auth/authorize` → returns `{ authorization_url }`
+1. `GET /api/v1/shopify/auth/authorize` → returns `{ authorization_url }`
    (also generates and remembers a one-time `state` nonce). Open it
    in a browser.
 2. Approve access. Shopify redirects to `SHOPIFY_REDIRECT_URI` with
    `shop`, `code`, `state`, `timestamp`, and `hmac` query params.
-3. That redirect must land on `GET /shopify/auth/callback`, which:
+3. That redirect must land on `GET /api/v1/shopify/auth/callback`, which:
    - confirms `shop` matches the configured `SHOPIFY_SHOP_DOMAIN`,
    - confirms `state` matches a nonce this app actually issued
      (single-use, defends against CSRF),
@@ -210,25 +230,25 @@ All endpoints return the envelope shown above. Examples:
 
 ```bash
 # Zoho contacts
-curl -X POST localhost:8000/zoho/contacts \
+curl -X POST localhost:8000/api/v1/zoho/contacts \
   -H 'Content-Type: application/json' \
   -d '{"first_name":"Ada","last_name":"Lovelace","email":"ada@example.com"}'
 
-curl localhost:8000/zoho/contacts?page=1&per_page=20
+curl localhost:8000/api/v1/zoho/contacts?page=1&per_page=20
 
 # Zoho leads
-curl -X POST localhost:8000/zoho/leads \
+curl -X POST localhost:8000/api/v1/zoho/leads \
   -H 'Content-Type: application/json' \
   -d '{"first_name":"Grace","last_name":"Hopper","email":"grace@example.com","lead_source":"Web"}'
 
 # Shopify customers
-curl -X POST localhost:8000/shopify/customers \
+curl -X POST localhost:8000/api/v1/shopify/customers \
   -H 'Content-Type: application/json' \
   -d '{"first_name":"Grace","last_name":"Hopper","email":"grace@example.com"}'
 
 # Shopify orders
-curl localhost:8000/shopify/orders?page=1&per_page=20
-curl localhost:8000/shopify/orders/<order_id>
+curl localhost:8000/api/v1/shopify/orders?page=1&per_page=20
+curl localhost:8000/api/v1/shopify/orders/<order_id>
 ```
 
 Full endpoint list is in `/docs` (Swagger) once the server is
@@ -280,9 +300,9 @@ volume so OAuth token state survives container restarts.
   cost of `client.py`'s retry/refresh flow being duplicated (not
   shared) between `modules/zoho/` and `modules/shopify/`.
 - **Zoho scope**: OAuth is a manual browser round-trip
-  (`/zoho/auth/authorize` → approve → `/zoho/auth/callback`), not a
-  fully automated flow — appropriate for a single-tenant demo, not
-  multi-tenant SaaS.
+  (`/api/v1/zoho/auth/authorize` → approve →
+  `/api/v1/zoho/auth/callback`), not a fully automated flow —
+  appropriate for a single-tenant demo, not multi-tenant SaaS.
 - **Shopify pagination**: Shopify's REST Admin API uses cursor-based
   (`page_info`) pagination, not page numbers. This service reports
   `has_more` correctly (from the `Link` response header) but the
@@ -295,7 +315,7 @@ volume so OAuth token state survives container restarts.
   the rest of the stack being async. The only DB traffic is small,
   infrequent OAuth token reads and writes, so the tradeoff favors
   simplicity over a fully async stack for this scope.
-- **Webhooks**: `POST /webhooks/shopify` verifies Shopify's HMAC
-  signature (when `SHOPIFY_WEBHOOK_SECRET` is set) and logs the
+- **Webhooks**: `POST /api/v1/webhooks/shopify` verifies Shopify's
+  HMAC signature (when `SHOPIFY_WEBHOOK_SECRET` is set) and logs the
   event — proof of the surface area, not a full event-processing
   pipeline.

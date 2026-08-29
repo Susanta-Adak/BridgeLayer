@@ -114,7 +114,7 @@ This version intentionally uses fewer GoF patterns than a classic layered design
 
 To add, say, HubSpot, a contributor should only need to:
 1. Create `app/modules/hubspot/` with the same internal shape as `modules/zoho/`: `auth/` (own token table + OAuth logic), `client.py` (own request/retry logic), and one subfolder per resource with `schemas.py`/`service.py`/`router.py` (no `models.py` — HubSpot stays the source of truth for its own data, same as Zoho/Shopify).
-2. Register its routers in `app/main.py` (`app.include_router(...)`).
+2. Register its routers in `app/api_v1.py` (`router.include_router(...)`) — see "API versioning" below.
 
 **Nothing in `core/`, `db/`, or the Zoho/Shopify modules should need to change.** There is currently no third provider module in the codebase to demonstrate this live — an earlier in-memory `demo` module that proved it out was removed. The claim rests on `modules/zoho/` and `modules/shopify/` already being structurally independent of each other, not on shared code either of them would need to be pulled out of.
 
@@ -125,7 +125,8 @@ To add, say, HubSpot, a contributor should only need to:
 ```
 bridgelayer/
 ├── app/
-│   ├── main.py                    # FastAPI app, lifespan, router registration
+│   ├── main.py                    # FastAPI app, lifespan; mounts api_v1.router + unversioned /health
+│   ├── api_v1.py                  # composition root: mounts every module's router under /api/v1
 │   ├── core/
 │   │   ├── config.py              # env/.env settings
 │   │   ├── logging.py
@@ -160,6 +161,13 @@ bridgelayer/
 ├── requirements.txt
 └── README.md
 ```
+
+Every route comment above (`/zoho/auth/*`, `/zoho/contacts`,
+`/webhooks/shopify`, ...) is the router's own **relative** prefix -
+`api_v1.py` mounts all of them under `/api/v1`, so the real path is
+e.g. `/api/v1/zoho/contacts`. `GET /health` (in `main.py`, not a
+module) is the one endpoint that stays unversioned. See the
+README's "API versioning" section for the full rationale.
 
 ---
 
@@ -214,4 +222,5 @@ bridgelayer/
 - Keep provider modules fully independent — no shared provider-specific code between `modules/zoho/` and `modules/shopify/`, only shared *generic* utilities from `core/` (HTTP client, exceptions, envelope/pagination schemas).
 - **Never add a `models.py` to a resource folder (`contacts/`, `leads/`, `customers/`, `orders/`).** Zoho and Shopify are the source of truth for that data — `service.py` calls the provider and returns its response, mapped, and nothing more. If a future requirement genuinely needs local caching, that's a deliberate decision to revisit (and re-document in the README), not a default to reach for per-resource.
 - **The database is for OAuth tokens only.** Only `auth/models.py` and `auth/service.py` (per provider) may import `app.db`/use `SessionLocal`. This is what keeps authentication cleanly separate from business logic — a resource's `service.py` should never need a DB session for anything.
+- **Module routers stay unversioned; `app/api_v1.py` is the only place that adds `/api/v1`.** A resource's `router.py` should keep its relative prefix (e.g. `/zoho/contacts`, never `/api/v1/zoho/contacts`) so it stays mountable under any future version. New routers get wired into `api_v1.py` (or a future `api_v2.py`), not given their own version prefix.
 - When in doubt about scope, remember: this demonstrates *pattern*, not full platform coverage — don't over-build beyond the listed endpoints unless going for bonus points.

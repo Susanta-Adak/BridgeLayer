@@ -41,7 +41,7 @@ def test_health(client):
 
 
 def test_zoho_authorize_returns_url(client):
-    response = client.get("/zoho/auth/authorize")
+    response = client.get("/api/v1/zoho/auth/authorize")
 
     assert response.status_code == 200
     body = response.json()
@@ -50,7 +50,9 @@ def test_zoho_authorize_returns_url(client):
 
 
 def test_zoho_contact_missing_fields_returns_validation_error(client):
-    response = client.post("/zoho/contacts", json={"first_name": "Ada"})
+    response = client.post(
+        "/api/v1/zoho/contacts", json={"first_name": "Ada"}
+    )
 
     assert response.status_code == 422
     body = response.json()
@@ -60,7 +62,7 @@ def test_zoho_contact_missing_fields_returns_validation_error(client):
 
 def test_zoho_contact_invalid_email_returns_validation_error(client):
     response = client.post(
-        "/zoho/contacts",
+        "/api/v1/zoho/contacts",
         json={
             "first_name": "Ada",
             "last_name": "Lovelace",
@@ -106,7 +108,7 @@ def test_zoho_contact_lifecycle_through_api(client):
     )
 
     create_resp = client.post(
-        "/zoho/contacts",
+        "/api/v1/zoho/contacts",
         json={
             "first_name": "Ada",
             "last_name": "Lovelace",
@@ -134,7 +136,7 @@ def test_zoho_contact_lifecycle_through_api(client):
             },
         )
     )
-    list_resp = client.get("/zoho/contacts")
+    list_resp = client.get("/api/v1/zoho/contacts")
     assert list_resp.status_code == 200
     assert list_resp.json()["success"] is True
     assert "meta" in list_resp.json()["data"]
@@ -142,7 +144,7 @@ def test_zoho_contact_lifecycle_through_api(client):
     respx.get(f"{base}/Contacts/999").mock(
         return_value=Response(200, json={"data": []})
     )
-    missing_resp = client.get("/zoho/contacts/999")
+    missing_resp = client.get("/api/v1/zoho/contacts/999")
     assert missing_resp.status_code == 404
     assert missing_resp.json()["success"] is False
     assert missing_resp.json()["error"]["code"] == "not_found"
