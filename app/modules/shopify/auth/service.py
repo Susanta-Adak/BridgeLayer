@@ -1,14 +1,11 @@
 """Shopify OAuth 2.0: authorization-code exchange for a permanent
 
-offline access token. Standalone to this module - owns its own
-ShopifyToken table and verification logic, with nothing shared with
-Zoho's auth module.
+offline access token. Owns its own ShopifyToken table.
 
-Unlike Zoho, Shopify requires two extra checks on the callback: an
-HMAC signature over the query string (proves the redirect came from
-Shopify, using the app's client secret) and a `state` nonce (defends
-against CSRF). Both are enforced here before a code is ever
-exchanged.
+The callback needs two checks Zoho's doesn't: an HMAC signature over
+the query string (proves the redirect came from Shopify, using the
+app's client secret) and a `state` nonce (defends against CSRF).
+Both are enforced here before a code is ever exchanged.
 
 Falls back to a static custom-app access token
 (`get_static_access_token`) when no OAuth token has been stored yet,

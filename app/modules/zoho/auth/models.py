@@ -1,6 +1,5 @@
 """Local table for Zoho's OAuth token.
 
-Standalone to this module - not shared with Shopify's token table.
 Single-tenant, so this is always a one-row table.
 """
 

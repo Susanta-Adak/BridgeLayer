@@ -1,11 +1,9 @@
 """Low-level authenticated HTTP calls to the Zoho CRM API.
 
-Standalone: this module owns its own get-token / refresh-on-401 /
-retry-once flow instead of inheriting a shared base class, so every
-Zoho HTTP concern lives entirely in this one file. contacts/service.py
-and leads/service.py call `authenticated_request` the same way a
-future provider's own client.py would - nothing here is shared with
-Shopify's client.py.
+Owns its own get-token / refresh-on-401 / retry-once flow instead of
+inheriting a shared base class, so every Zoho HTTP concern lives
+entirely in this one file; contacts/service.py and leads/service.py
+just call `authenticated_request`.
 """
 
 import httpx

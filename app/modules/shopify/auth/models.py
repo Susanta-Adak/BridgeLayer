@@ -1,9 +1,8 @@
 """Local table for Shopify's OAuth token.
 
-Standalone to this module - not shared with Zoho's token table.
-Shopify's offline access token never expires, so `expires_at` stays
-null; the row simply doesn't exist until OAuth completes, and the
-module falls back to a static env-configured token until then.
+Shopify's offline access token never expires. The row simply
+doesn't exist until OAuth completes; until then the module falls
+back to a static env-configured token.
 """
 
 import datetime
